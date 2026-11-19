@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS booking_history (
     CONSTRAINT fk_booking_user FOREIGN KEY (user_id) REFERENCES user_account (user_id) ON DELETE CASCADE,
     INDEX idx_booking_user_status (user_id, status),
     INDEX idx_booking_user_event (user_id, event_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB; -- 문자셋·collation은 DB 기본값을 따른다. 명시하면 user_account FK와 어긋날 수 있다(#46)
 
 -- 8. 결제 카드 식별 정보 테이블 (다계정 카드 공유 탐지용)
 CREATE TABLE IF NOT EXISTS user_card (
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS user_card (
     CONSTRAINT fk_card_user FOREIGN KEY (user_id) REFERENCES user_account (user_id) ON DELETE CASCADE,
     INDEX idx_user_card_hash (card_hash),
     INDEX idx_user_card_user (user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB; -- 문자셋·collation은 DB 기본값을 따른다. 명시하면 user_account FK와 어긋날 수 있다(#46)
 
 CREATE UNIQUE INDEX `user_account_index_0` ON `user_account` (`service_id`, `external_user_id`);
 
