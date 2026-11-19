@@ -185,12 +185,12 @@ X-API-Key: <서비스에 발급한 키>
 | eventType | 필수, BOOKING / CANCEL / CHECK_IN만 허용 |
 | bookingId | 최대 100자, BOOKING·CANCEL에서는 필수이며 공백 불가 |
 | ticketId | 최대 100자, CHECK_IN에서는 필수이며 공백 불가 |
-| occurredAt | 필수, ISO 8601 문자열, UTC 오프셋 필수(Z, +00:00, +09:00 등), UTC 정규화 후 MySQL DATETIME 범위(1000~9999년), 0이 아닌 소수 초는 거부 |
+| occurredAt | 필수, ISO 8601 문자열, UTC 오프셋 필수(Z, +00:00, +09:00 등), UTC 정규화 후 MySQL DATETIME 범위(1000~9999년), 소수 초는 밀리초(3자리)까지 허용하고 그보다 정밀한 0이 아닌 값은 거부 |
 | metadata | 선택, JSON Object 또는 null, 추가 속성 허용, 중첩 객체·배열 지원 |
 | metadata.bookingDurationSeconds | 제공 시 0 이상의 숫자. 문자열·boolean·null은 거부 |
 | metadata.deviceChanged | 제공 시 boolean. 문자열·숫자·null은 거부 |
 
-요청의 `occurredAt`은 UTC 오프셋을 포함해야 합니다. `2026-09-13T16:53:52+00:00`과 `2026-09-14T01:53:52+09:00`은 동일한 순간이며 둘 다 UTC `2026-09-13T16:53:52`로 저장하고, 응답은 `2026-09-13T16:53:52Z`로 반환합니다. 오프셋 없는 문자열과 유효하지 않은 날짜·오프셋은 400 / `INVALID_REQUEST`입니다. 기존 `DATETIME`의 초 단위 정밀도를 유지하므로 0이 아닌 소수 초는 400이며, `.000`처럼 소수 부분이 0인 표현은 허용합니다. UTC 정규화 후 1000~9999년 범위를 벗어나도 400입니다. `occurredAt`은 실제 행동 발생 시각이며 서버 수신 시각으로 덮어쓰지 않습니다. 스키마·JPA의 `LocalDateTime` 매핑은 유지하고 저장 경계에서 `OffsetDateTime`을 UTC로 변환합니다. 사용자 생성·Assessment·Policy 등 다른 시간 컬럼의 정책은 변경하지 않습니다.
+요청의 `occurredAt`은 UTC 오프셋을 포함해야 합니다. `2026-09-13T16:53:52+00:00`과 `2026-09-14T01:53:52+09:00`은 동일한 순간이며 둘 다 UTC `2026-09-13T16:53:52`로 저장하고, 응답은 `2026-09-13T16:53:52Z`로 반환합니다. 오프셋 없는 문자열과 유효하지 않은 날짜·오프셋은 400 / `INVALID_REQUEST`입니다. `behavior_event.occurred_at`은 `DATETIME(3)`이므로 소수 초는 밀리초까지 저장합니다(`.123Z` 허용). 밀리초보다 정밀한 0이 아닌 값(`.1234Z` 등)은 저장 시 반올림되어 재전송 비교가 어긋나므로 400이며, `.123000`처럼 밀리초 이하 자리가 0인 표현은 허용합니다. 기존 DB에는 `backend/db/manual/040-behavior-event-occurred-at-millis.sql`을 적용합니다. UTC 정규화 후 1000~9999년 범위를 벗어나도 400입니다. `occurredAt`은 실제 행동 발생 시각이며 서버 수신 시각으로 덮어쓰지 않습니다. 스키마·JPA의 `LocalDateTime` 매핑은 유지하고 저장 경계에서 `OffsetDateTime`을 UTC로 변환합니다. 사용자 생성·Assessment·Policy 등 다른 시간 컬럼의 정책은 변경하지 않습니다.
 
 기존 행에는 KST 기준 값이 저장되어 있을 수 있습니다. 이번 변경은 기존 데이터를 수정하지 않습니다. UTC 계약 배포 전에 기존 행의 시간 기준과 전환 시점을 확인하고 별도 마이그레이션을 결정해야 합니다. 기존 KST 행을 UTC로 그대로 읽으면 응답 시각이 9시간 달라지고 동일 이벤트 재전송이 충돌할 수 있으며, 신·구 데이터 혼재는 시간 정렬과 Feature 집계에도 영향을 줍니다. 원본 시간 기준이 확인된 행만 별도 승인된 작업으로 변환해야 합니다.
 
@@ -704,5 +704,5 @@ Path Variable concertId는 공백 없는 1~50자이며 Body는 없습니다.
 - 오류 메시지는 INVALID_REQUEST="요청 데이터가 올바르지 않습니다.", UNAUTHORIZED="인증이 필요합니다.",
   FORBIDDEN="접근 권한이 없습니다.", CONCERT_NOT_FOUND="해당 공연을 찾을 수 없습니다.",
   INTERNAL_SERVER_ERROR="서버 내부 오류가 발생했습니다."입니다. MVC의 405/406/415도 기존 공통 규칙을 따릅니다.
-- 신규 빈 DB는 schema.sql, 기존 DB는 `db/manual/038-create-concert.sql`만 검토 후 수동 적용합니다.
+- 신규 빈 DB는 schema.sql, 기존 DB는 `db/manual/038-create-concert.sql`, `db/manual/040-behavior-event-occurred-at-millis.sql`을 순서대로 검토 후 수동 적용합니다.
 - Demo Ticketing 연동 방법은 [공연 정보 연동 가이드](concert-integration.md)를 참고합니다.

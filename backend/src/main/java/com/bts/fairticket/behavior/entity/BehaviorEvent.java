@@ -58,7 +58,7 @@ public class BehaviorEvent {
 	@Column(name = "ticket_id", nullable = true, length = 100)
 	private String ticketId;
 
-	@Column(name = "occurred_at", nullable = false, columnDefinition = "datetime")
+	@Column(name = "occurred_at", nullable = false, columnDefinition = "datetime(3)")
 	// 이벤트 API는 UTC로 정규화한 값을 저장한다. 기존 KST 행은 별도 마이그레이션 대상이다.
 	private LocalDateTime occurredAt;
 

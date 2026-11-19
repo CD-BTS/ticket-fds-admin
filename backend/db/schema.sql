@@ -14,7 +14,7 @@ CREATE TABLE `behavior_event` (
   `event_type` varchar(30) NOT NULL COMMENT 'BOOKING, CANCEL, CHECK_IN',
   `booking_id` varchar(100) COMMENT '외부 예매 ID. BOOKING/CANCEL 시 필수',
   `ticket_id` varchar(100) COMMENT '외부 티켓 ID. CHECK_IN 시 필수',
-  `occurred_at` datetime NOT NULL COMMENT '외부 서비스에서 실제 행동이 발생한 시각',
+  `occurred_at` datetime(3) NOT NULL COMMENT '외부 서비스에서 실제 행동이 발생한 시각 (UTC, 밀리초)',
   `metadata` json COMMENT '추가 행동 정보. bookingDurationSeconds, deviceChanged 등 확장 가능'
 );
 
