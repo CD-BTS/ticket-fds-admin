@@ -217,7 +217,8 @@ class EventControllerTests {
 
 	@Test
 	void rejectsMissingOffsetsFractionalPrecisionAndInvalidDates() throws Exception {
-		for (String time : new String[] {"2026-10-10T19:30:00", "2026-10-10T19:30:00.123Z",
+		for (String time : new String[] {"2026-10-10T19:30:00", "2026-10-10T19:30:00.1234Z",
+				"2026-10-10T19:30:00.123456789Z",
 				"2026-10-10T19:30:00+19:00", "2026-02-30T19:30:00Z", "2026-10-10T24:00:00Z",
 				"2026-10-10T19:30", "0999-10-10T19:30:00Z",
 				"1000-01-01T00:00:00+09:00", "9999-12-31T23:59:59-01:00"}) {
@@ -226,6 +227,26 @@ class EventControllerTests {
 			badRequest(body);
 		}
 		verifyNoInteractions(service);
+	}
+
+	@Test
+	void acceptsMillisecondPrecisionAndKeepsItInUtc() throws Exception {
+		var response = new EventResponse(1L, "service-a", "external", "user", "BOOKING", "booking", null,
+				"2026-10-10T10:30:00.123Z", Map.of());
+		when(service.collect(any(), eq("service-a"))).thenReturn(new RegistrationResult(response, true));
+		for (String time : new String[] {"2026-10-10T10:30:00.123Z", "2026-10-10T19:30:00.1230+09:00"}) {
+			var body = body();
+			body.put("occurredAt", time);
+			mvc.perform(post("/api/v1/events").header("X-API-Key", KEY).contentType("application/json")
+					.content(mapper.writeValueAsString(body)))
+					.andExpect(status().isCreated());
+		}
+		var captured = org.mockito.ArgumentCaptor.forClass(com.bts.fairticket.behavior.dto.EventRequest.class);
+		org.mockito.Mockito.verify(service, org.mockito.Mockito.times(2)).collect(captured.capture(), eq("service-a"));
+		for (var request : captured.getAllValues()) {
+			org.junit.jupiter.api.Assertions.assertEquals(
+					java.time.LocalDateTime.of(2026, 10, 10, 10, 30, 0, 123_000_000), request.occurrenceTime());
+		}
 	}
 
 	@Test

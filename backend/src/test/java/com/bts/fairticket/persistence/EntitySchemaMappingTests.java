@@ -34,7 +34,7 @@ class EntitySchemaMappingTests {
 	private static final Pattern TABLE_PATTERN = Pattern.compile(
 			"CREATE TABLE `(\\w+)` \\((.*?)\\)(?: ENGINE[^;]*)?;", Pattern.DOTALL);
 	private static final Pattern COLUMN_PATTERN = Pattern.compile(
-			"^`(\\w+)` (varchar\\(\\d+\\)|bigint|int|double|datetime|json)(.*)$");
+			"^`(\\w+)` (varchar\\(\\d+\\)|bigint|int|double|datetime(?:\\(\\d\\))?|json)(.*)$");
 	private static final Pattern INDEX_PATTERN = Pattern.compile(
 			"CREATE (UNIQUE )?INDEX `(\\w+)` ON `(\\w+)` \\(([^;]+)\\);");
 	private static final Pattern FOREIGN_KEY_PATTERN = Pattern.compile(
