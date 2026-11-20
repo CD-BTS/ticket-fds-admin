@@ -1,6 +1,7 @@
 package com.bts.fairticket.credit.entity;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 import com.bts.fairticket.user.entity.UserAccount;
 
@@ -55,7 +56,7 @@ public class BookingHistory {
     private LocalDateTime eventAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime createdAt = LocalDateTime.now(ZoneOffset.UTC);
 
     public BookingHistory(UserAccount user, String bookingReference, String eventId,
                           BookingStatus status, LocalDateTime bookedAt, LocalDateTime eventAt) {

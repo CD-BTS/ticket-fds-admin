@@ -184,8 +184,9 @@ class EventApiMySqlTests {
 			}
 			assertEquals(eventId.longValue(), id);
 			assertEquals(java.time.LocalDateTime.of(2026, 9, 13, 16, 53, 52),
+					// Timestamp로 읽으면 JVM 시간대 변환이 끼어든다(#47). 저장된 UTC 값을 그대로 비교한다.
 					jdbc.queryForObject("SELECT occurred_at FROM behavior_event WHERE event_id=?",
-							java.sql.Timestamp.class, id).toLocalDateTime());
+							java.time.LocalDateTime.class, id));
 		}
 		var invalid = new EventRequest(SERVICE_A, external, userId, EventType.BOOKING, "booking", null,
 				"2026-09-13T16:53:52", null);

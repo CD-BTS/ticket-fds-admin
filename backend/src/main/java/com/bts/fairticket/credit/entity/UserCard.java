@@ -1,6 +1,7 @@
 package com.bts.fairticket.credit.entity;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 import com.bts.fairticket.user.entity.UserAccount;
 
@@ -46,10 +47,10 @@ public class UserCard {
     private String maskedCardNo;
 
     @Column(name = "last_used_at", nullable = false)
-    private LocalDateTime lastUsedAt = LocalDateTime.now();
+    private LocalDateTime lastUsedAt = LocalDateTime.now(ZoneOffset.UTC);
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime createdAt = LocalDateTime.now(ZoneOffset.UTC);
 
     public UserCard(UserAccount user, String cardHash, String cardCompany, String maskedCardNo) {
         this.user = user;
