@@ -100,11 +100,13 @@ Docker Compose는 `.env`를 읽지만 **Spring Boot와 Gradle은 `.env`를 자�
 기존 Docker MySQL에 접속하는 PowerShell 예시(로그인에 성공한 기존 `user` 비밀번호 입력):
 
 ```powershell
-$env:DB_URL = 'jdbc:mysql://localhost:3306/fairticket_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8'
+$env:DB_URL = 'jdbc:mysql://localhost:3306/fairticket_db?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC&characterEncoding=UTF-8'
 $env:DB_USERNAME = 'user'
 $env:DB_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host 'DB password' -AsSecureString)).Password
 .\gradlew.bat bootRun
 ```
+
+**시간대:** DB의 모든 datetime은 UTC입니다. 애플리케이션이 DB 세션 시간대를 UTC로 고정하고(`SET time_zone = '+00:00'`), `LocalDateTime`을 변환 없이 JDBC에 넘깁니다(`hibernate.type.java_time_use_direct_jdbc=true`). 그래서 JVM 시간대(KST 개발 PC, UTC 서버)나 `DB_URL`의 `serverTimezone`/`connectionTimeZone` 값과 관계없이 같은 값이 저장됩니다(#47). 예시는 `connectionTimeZone=UTC`를 쓰지만 기존 `serverTimezone=Asia/Seoul` URL도 동작합니다. DB 값을 직접 검증할 때는 `java.sql.Timestamp` 대신 `LocalDateTime`으로 읽어야 JVM 시간대 변환이 끼어들지 않습니다.
 
 기본 HTTP 포트는 `8080`입니다. ERD의 6개 테이블에 대응하는 Entity와 Repository를 제공하며 사용자 등록·조회 API는 [docs/api-spec.md](../docs/api-spec.md)를 참고하세요.
 

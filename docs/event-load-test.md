@@ -69,7 +69,7 @@ SOURCE /tmp/fairticket-schema.sql;
 DB 사용자·비밀번호는 `.env`에 입력한 값과 동일하게 별도 설정해야 한다.
 
 ```powershell
-$env:DB_URL = 'jdbc:mysql://localhost:3306/fairticket_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8'
+$env:DB_URL = 'jdbc:mysql://localhost:3306/fairticket_db?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC&characterEncoding=UTF-8'
 $env:DB_USERNAME = Read-Host '로컬 DB 사용자'
 $env:DB_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host '로컬 DB 비밀번호' -AsSecureString)).Password
 $env:SERVICE_ID = 'load-test-issue18'
