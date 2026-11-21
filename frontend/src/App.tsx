@@ -9,7 +9,7 @@ import {
 import { api, ApiError } from './api/client'
 import type {
   AdminUser, Assessment, Concert, ConcertDetail, ConcertUser, DashboardSummary,
-  AdminUserDetail, PageResponse, UserEvent,
+  AdminUserDetail, PageResponse, UserEvent, UserFeatures,
 } from './api/types'
 
 type View = 'concerts' | 'concert' | 'concert-users' | 'users' | 'user'
@@ -81,6 +81,8 @@ function App() {
   const [userDetail, setUserDetail] = useState<AdminUserDetail | null>(null)
   const [userEvents, setUserEvents] = useState<UserEvent[]>([])
   const [assessments, setAssessments] = useState<Assessment[]>([])
+  const [features, setFeatures] = useState<UserFeatures | null>(null)
+  const [featuresError, setFeaturesError] = useState('')
   const [detailLoading, setDetailLoading] = useState(false)
   const [backTo, setBackTo] = useState<Back>('users')
 
@@ -196,6 +198,8 @@ function App() {
     setUserDetail(null)
     setUserEvents([])
     setAssessments([])
+    setFeatures(null)
+    setFeaturesError('')
     setBackTo(from)
     setView('user')
     setDetailLoading(true)
@@ -209,6 +213,8 @@ function App() {
       setUserDetail(detail)
       setUserEvents(events.content)
       setAssessments(assess.content)
+      // Feature 계산 실패가 상세 화면 전체를 막지 않도록 따로 조회합니다.
+      api.userFeatures(adminKey, userId).then(setFeatures).catch(e => setFeaturesError(explainError(e)))
     } catch (e) {
       setError(`사용자 상세 조회 실패: ${explainError(e)}`)
     } finally {
@@ -268,7 +274,7 @@ function App() {
             {view === 'concert' && <ConcertDashboard detail={concertDetail} concertId={selectedConcert} recent={recentUsers} loading={concertDetailLoading} onBack={() => setView('concerts')} onParticipants={goConcertUsers} onOpenUser={id => openUser(id, 'concert-users')} />}
             {view === 'concert-users' && <ConcertParticipants concertId={selectedConcert} title={concertDetail?.concert.name} data={cUsers.data} loading={cUsers.loading} tiers={tiers} tier={cuTier} sort={cuSort} onTier={t => { setCuTier(t); void loadConcertUsers(selectedConcert, 0, cuSort, t) }} onSort={s => { setCuSort(s); void loadConcertUsers(selectedConcert, 0, s, cuTier) }} onPage={p => loadConcertUsers(selectedConcert, p)} onBack={() => setView('concert')} onOpenUser={id => openUser(id, 'concert-users')} />}
             {view === 'users' && <UserList tiers={tiers} data={users.data} loading={users.loading} search={userSearch} setSearch={setUserSearch} tier={userTier} setTier={setUserTier} status={userStatus} setStatus={setUserStatus} minCredit={minCredit} setMinCredit={setMinCredit} maxCredit={maxCredit} setMaxCredit={setMaxCredit} sort={creditSort} onSort={s => { setCreditSort(s); void loadUsers(0, { sort: s }) }} onSearch={() => loadUsers(0)} onPage={p => loadUsers(p)} onOpenUser={id => openUser(id, 'users')} />}
-            {view === 'user' && <UserDetailPage userId={selectedUserId} detail={userDetail} events={userEvents} assessments={assessments} loading={detailLoading} backLabel={backTo === 'users' ? '사용자 목록으로' : '공연별 사용자로'} onBack={() => setView(backTo)} />}
+            {view === 'user' && <UserDetailPage userId={selectedUserId} detail={userDetail} events={userEvents} assessments={assessments} features={features} featuresError={featuresError} loading={detailLoading} backLabel={backTo === 'users' ? '사용자 목록으로' : '공연별 사용자로'} onBack={() => setView(backTo)} />}
           </>}
         </main>
       </div>
@@ -395,20 +401,24 @@ function ActionPill({ action }: { action: string | null }) {
   return <span className={`status-pill ${tone}`}>{ACTIONS[action] ?? action}</span>
 }
 
-function UserDetailPage({ userId, detail, events, assessments, loading, backLabel, onBack }: {
-  userId: string; detail: AdminUserDetail | null; events: UserEvent[]; assessments: Assessment[]; loading: boolean; backLabel: string; onBack: () => void
+function UserDetailPage({ userId, detail, events, assessments, features, featuresError, loading, backLabel, onBack }: {
+  userId: string; detail: AdminUserDetail | null; events: UserEvent[]; assessments: Assessment[]; features: UserFeatures | null; featuresError: string; loading: boolean; backLabel: string; onBack: () => void
 }) {
   const user = detail?.user
   const policy = detail?.latestPolicy
-  const featureRows = [
-    ['bookingCount', '최근 30일 고유 예매 건수', '건'],
-    ['cancelCount', '최근 30일 고유 취소 건수', '건'],
-    ['cancelRate', '예매 대비 취소 비율', '%'],
-    ['avgBookingInterval', '평균 예매 간격', '초'],
-    ['shortIntervalBookingCount', '5초 이하 연속 예매 횟수', '회'],
-    ['attendanceRate', '출석률', '%'],
-    ['avgBookingDuration', '평균 예매 소요 시간', '초'],
+  const featureRows: [keyof UserFeatures, string, string][] = [
+    ['bookingCount', '최근 30일 고유 예매 시도 수 (attemptId 기준)', '회'],
+    ['avgBookingInterval', '연속 시도 시작 간격 평균', '초'],
+    ['bookingIntervalVariance', '연속 시도 시작 간격 분산', '초²'],
+    ['cancelRate', '예매 완료 대비 취소 비율', '%'],
+    ['cardReuseCount', '같은 결제수단을 쓴 최대 고유 계정 수 (본인 포함)', '명'],
+    ['ipBookingDensity', '같은 IP로 예매한 최대 고유 계정 수 (본인 포함)', '명'],
   ]
+  const featureValue = (key: keyof UserFeatures, unit: string) => {
+    const value = features?.[key]
+    if (typeof value !== 'number') return <span className="unavailable">계산 불가</span>
+    return <span>{key === 'cancelRate' ? `${(value * 100).toFixed(1)}%` : `${Number.isInteger(value) ? number(value) : value.toFixed(2)}${unit}`}</span>
+  }
   return <>
     <button className="back-link" onClick={onBack}><ArrowLeft size={16} /> {backLabel}</button>
     <PageHeading eyebrow="USER DETAIL" title={user?.externalUserId || userId} description="사용자의 최신 위험 평가, 정책 결정과 행동 이벤트 이력을 확인합니다." />
@@ -419,7 +429,7 @@ function UserDetailPage({ userId, detail, events, assessments, loading, backLabe
         {policy ? <div className="policy-grid"><div><span>조치</span><ActionPill action={policy.action} /></div><div><span>상황</span><b>{policy.context}</b></div><div><span>당시 Credit</span><b>{number(policy.creditScore)}</b></div><div><span>당시 이상 점수</span><b>{score(policy.anomalyScore)}</b></div><div><span>결정 시각</span><b>{dateTimeUtc(policy.decidedAt)}</b></div><div className="policy-reason"><span>사유</span><b>{policy.reason}</b></div></div> : <div className="chart-empty"><span>아직 정책 결정이 없습니다.</span></div>}
       </section>
       <section className="panel"><div className="panel-heading"><div><h2>위험 평가 이력</h2><p>최근 평가 결과 (최대 10건)</p></div><span className="count-chip">{assessments.length}건</span></div><div className="table-panel inner-table"><table><thead><tr><th>평가 시각</th><th>이상 점수</th><th>연결된 조치</th><th>모델 버전</th></tr></thead><tbody>{assessments.map(a => <tr key={a.assessmentId}><td>{dateTime(a.assessedAt)}</td><td><AnomalyCell value={a.anomalyScore} /></td><td><ActionPill action={a.policyAction} /></td><td className="mono">{a.modelVersion ?? '—'}</td></tr>)}{!assessments.length && <tr><td colSpan={4} className="empty-cell">평가 이력이 없습니다.</td></tr>}</tbody></table></div></section>
-      <section className="panel feature-panel"><div className="panel-heading"><div><h2>AI Feature</h2><p>최근 30일 행동 이벤트를 기준으로 계산하는 Feature 항목</p></div><ApiMissing>Feature 조회 API 미제공</ApiMissing></div><div className="feature-table"><div className="feature-row feature-head"><span>Feature</span><span>설명</span><span>계산값</span></div>{featureRows.map(([key, label, unit]) => <div className="feature-row" key={key}><code>{key}</code><span>{label}</span><span className="unavailable">미제공 {unit}</span></div>)}</div><div className="feature-note">백엔드에 Feature 계산 서비스와 DTO는 있지만 사용자별 계산 결과를 반환하는 조회 API는 아직 없습니다. 값을 임의로 만들지 않습니다.</div></section>
+      <section className="panel feature-panel"><div className="panel-heading"><div><h2>AI Feature</h2><p>최근 {features?.windowDays ?? 30}일 행동 이벤트를 기준으로 조회 시점에 계산한 값</p></div>{features ? <span className="count-chip">계산 {dateTimeUtc(features.calculatedAt)}</span> : featuresError ? <ApiMissing>조회 실패</ApiMissing> : <span className="count-chip">계산 중</span>}</div>{featuresError && <div className="feature-note">Feature 조회 실패: {featuresError}</div>}<div className="feature-table"><div className="feature-row feature-head"><span>Feature</span><span>설명</span><span>계산값</span></div>{featureRows.map(([key, label, unit]) => <div className="feature-row" key={key}><code>{key}</code><span>{label}</span>{featureValue(key, unit)}</div>)}</div><div className="feature-note">저장된 값이 아니라 조회할 때마다 계산합니다. AI 서버(/predict)에 넘기는 입력 6개와 같습니다. 예매 시도가 2건 미만이면 간격 평균·분산이, 예매 완료가 없으면 취소율이 계산 불가로 표시됩니다.</div></section>
       <section className="panel history-panel"><div className="panel-heading"><div><h2>예매 및 행동 이력</h2><p>최근 수집된 사용자 이벤트 (최대 50건)</p></div><span className="count-chip">{events.length}건</span></div><div className="table-panel inner-table"><table><thead><tr><th>이벤트</th><th>발생 일시</th><th>예약 ID</th><th>티켓 ID</th><th>추가 정보</th></tr></thead><tbody>{events.map(event => <tr key={event.eventId}><td><EventBadge type={event.eventType} /></td><td>{dateTimeUtc(event.occurredAt)}</td><td className="mono">{event.bookingId || '—'}</td><td className="mono">{event.ticketId || '—'}</td><td>{event.metadata ? Object.entries(event.metadata).slice(0, 2).map(([k, v]) => `${k}: ${String(v)}`).join(' · ') : '—'}</td></tr>)}{!events.length && <tr><td colSpan={5} className="empty-cell">조회된 이벤트 이력이 없습니다.</td></tr>}</tbody></table></div></section>
     </>}
     {!loading && !user && <div className="empty-state"><div className="empty-icon"><UserRound size={22} /></div><h3>사용자 상세 정보를 불러오지 못했습니다</h3><p>관리자 키의 서비스 범위와 사용자 ID를 확인해 주세요.</p></div>}

@@ -1,5 +1,7 @@
 package com.bts.fairticket.admin.service;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -17,6 +19,7 @@ import com.bts.fairticket.common.response.ResponseCode;
 import com.bts.fairticket.policy.dto.PolicyDecisionResponse;
 import com.bts.fairticket.policy.repository.PolicyDecisionRepository;
 import com.bts.fairticket.risk.entity.RiskAssessment;
+import com.bts.fairticket.risk.service.FeatureAggregationService;
 import com.bts.fairticket.risk.repository.RiskAssessmentRepository;
 import com.bts.fairticket.user.dto.UserQuery;
 import com.bts.fairticket.user.entity.UserAccount;
@@ -34,12 +37,16 @@ public class AdminUserQueryService {
     private final RiskAssessmentRepository assessments;
     private final PolicyDecisionRepository policies;
     private final AdminAssessmentQueryRepository history;
+    private final FeatureAggregationService features;
+    private final Clock clock;
 
     public AdminUserQueryService(UserQueryService users, UserService details, UserEventQueryService events,
             UserAccountRepository accounts, RiskAssessmentRepository assessments,
-            PolicyDecisionRepository policies, AdminAssessmentQueryRepository history) {
+            PolicyDecisionRepository policies, AdminAssessmentQueryRepository history,
+            FeatureAggregationService features, Clock clock) {
         this.users = users; this.details = details; this.events = events; this.accounts = accounts;
         this.assessments = assessments; this.policies = policies; this.history = history;
+        this.features = features; this.clock = clock;
     }
 
     public PageResponse<AdminUserResponse> find(UserQuery query, AdminScope scope) {
@@ -74,6 +81,14 @@ public class AdminUserQueryService {
 
     public PageResponse<AssessmentResponse> assessments(String userId, AssessmentQuery query, AdminScope scope) {
         return history.find(authorizedUser(userId, scope).getUserId(), query);
+    }
+
+    /** 조회 전용: 평가·정책 생성이나 Credit 갱신 없이 최근 30일 이벤트로 Feature만 계산한다. */
+    public UserFeaturesResponse features(String userId, AdminScope scope) {
+        var user = authorizedUser(userId, scope);
+        LocalDateTime calculatedAt = LocalDateTime.now(clock);
+        return UserFeaturesResponse.of(user.getUserId(), calculatedAt,
+                features.aggregateFeatures(user.getUserId(), calculatedAt));
     }
 
     private UserAccount authorizedUser(String userId, AdminScope scope) {
