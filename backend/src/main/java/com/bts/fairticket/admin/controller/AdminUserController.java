@@ -45,4 +45,10 @@ public class AdminUserController {
 			@RequestAttribute(ApiKeyFilter.ADMIN_ATTRIBUTE) AdminScope scope) {
 		return ApiResponse.success(users.assessments(userId, query, scope));
 	}
+
+	@GetMapping("/{userId}/features")
+	public ApiResponse<UserFeaturesResponse> features(@PathVariable @NotBlank @Size(max = 50) String userId,
+			@RequestAttribute(ApiKeyFilter.ADMIN_ATTRIBUTE) AdminScope scope) {
+		return ApiResponse.success(users.features(userId, scope));
+	}
 }

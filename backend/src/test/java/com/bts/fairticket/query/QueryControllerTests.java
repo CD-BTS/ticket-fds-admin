@@ -48,12 +48,14 @@ class QueryControllerTests {
 	@MockitoBean com.bts.fairticket.risk.repository.RiskAssessmentRepository assessments;
 	@MockitoBean com.bts.fairticket.policy.repository.PolicyDecisionRepository policies;
 	@MockitoBean com.bts.fairticket.admin.repository.AdminAssessmentQueryRepository history;
+	@MockitoBean com.bts.fairticket.risk.service.FeatureAggregationService featureService;
+	@MockitoBean java.time.Clock clock;
 
 	@Test
 	void authenticationCoversAllNewRoutesAndNormalizesPaths() throws Exception {
 		for (String path : List.of("/api/v1/users", "/api/v1/users/id/events", "/api/v1/admin/users",
 				"/api/v1/dashboard/summary", "/api/v1/admin/users/id", "/api/v1/admin/users/id/events",
-				"/api/v1/admin/users/id/assessments", "/api/v1/admin/users;x=1", "/api/v1/dashboard/summary;x=1")) {
+				"/api/v1/admin/users/id/assessments", "/api/v1/admin/users/id/features", "/api/v1/admin/users;x=1", "/api/v1/dashboard/summary;x=1")) {
 			mvc.perform(get(path)).andExpect(status().isUnauthorized()).andExpect(jsonPath("code").value("UNAUTHORIZED"));
 			mvc.perform(get(path).header("X-API-Key", "wrong")).andExpect(status().isUnauthorized());
 			mvc.perform(get(path).header("X-API-Key", SERVICE_KEY, SERVICE_KEY)).andExpect(status().isUnauthorized());
@@ -102,7 +104,7 @@ class QueryControllerTests {
 	void adminRoutesEnforceScopeBeforeQueryingAndValidateParameters() throws Exception {
 		when(accounts.findById("foreign")).thenReturn(java.util.Optional.of(
 				new com.bts.fairticket.user.entity.UserAccount("foreign", "c", "external")));
-		for (String suffix : List.of("", "/events", "/assessments")) {
+		for (String suffix : List.of("", "/events", "/assessments", "/features")) {
 			mvc.perform(get("/api/v1/admin/users/foreign" + suffix).header("X-API-Key", ADMIN))
 					.andExpect(status().isNotFound()).andExpect(jsonPath("code").value("USER_NOT_FOUND"));
 			mvc.perform(get("/api/v1/admin/users/missing" + suffix).header("X-API-Key", ADMIN))
@@ -114,6 +116,24 @@ class QueryControllerTests {
 				.andExpect(status().isBadRequest());
 		mvc.perform(get("/api/v1/admin/users/id/assessments").header("X-API-Key", ADMIN).param("page", "abc"))
 				.andExpect(status().isBadRequest());
-		verifyNoInteractions(details, events, history, policies);
+		verifyNoInteractions(details, events, history, policies, featureService);
+	}
+
+	@Test
+	void adminFeaturesReturnsCalculatedValuesForUsersInScope() throws Exception {
+		when(clock.instant()).thenReturn(java.time.Instant.parse("2026-11-21T00:00:00Z"));
+		when(clock.getZone()).thenReturn(java.time.ZoneOffset.UTC);
+		when(accounts.findById("mine")).thenReturn(java.util.Optional.of(
+				new com.bts.fairticket.user.entity.UserAccount("mine", "a", "external")));
+		when(featureService.aggregateFeatures(eq("mine"), any())).thenReturn(
+				com.bts.fairticket.risk.dto.UserCalculatedFeatures.builder().bookingCount(3).cancelCount(1)
+						.cancelRate(1.0 / 3).avgBookingInterval(12.5).shortIntervalBookingCount(0).build());
+		mvc.perform(get("/api/v1/admin/users/mine/features").header("X-API-Key", ADMIN))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("data.userId").value("mine"))
+				.andExpect(jsonPath("data.windowDays").value(30))
+				.andExpect(jsonPath("data.bookingCount").value(3))
+				.andExpect(jsonPath("data.avgBookingInterval").value(12.5))
+				.andExpect(jsonPath("data.attendanceRate").doesNotExist());
 	}
 }

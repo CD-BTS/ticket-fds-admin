@@ -99,3 +99,17 @@ export interface ConcertUser {
   user: AdminUser
   lastBookingAttemptAt: string | null
 }
+
+/** 최근 30일 행동 이벤트로 조회 시점에 계산한 Feature. 계산하지 못한 값은 null입니다. */
+export interface UserFeatures {
+  userId: string
+  calculatedAt: string
+  windowDays: number
+  bookingCount: number | null
+  cancelCount: number | null
+  cancelRate: number | null
+  avgBookingInterval: number | null
+  shortIntervalBookingCount: number | null
+  attendanceRate: number | null
+  avgBookingDuration: number | null
+}
