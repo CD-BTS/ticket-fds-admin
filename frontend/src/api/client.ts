@@ -9,6 +9,7 @@ import type {
   DashboardSummary,
   PageResponse,
   UserEvent,
+  UserFeatures,
 } from './types'
 
 export class ApiError extends Error {
@@ -74,6 +75,9 @@ export const api = {
       sort: 'occurredAt,desc',
       ...query,
     }),
+
+  userFeatures: (key: string, userId: string) =>
+    request<UserFeatures>(`/api/v1/admin/users/${id(userId)}/features`, key),
 
   userAssessments: (key: string, userId: string, query: Params = {}) =>
     request<PageResponse<Assessment>>(`/api/v1/admin/users/${id(userId)}/assessments`, key, {
