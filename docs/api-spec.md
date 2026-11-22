@@ -319,14 +319,14 @@ X-API-Key를 유지하며 별도 환경변수 BTS_ADMIN_API_KEYS를 설정합니
 
 서비스 관리자는 allServices=false와 비어 있지 않은 services, 전체 관리자는 allServices=true와 빈 services를 사용합니다. 서비스 ID는 최대 50자이며 공백 문자열·앞뒤 공백은 불가합니다. 키 원문을 저장·반환·로그 출력하지 않습니다. 관리자 키 사이 및 기존 서비스 키와 같은 해시는 허용하지 않습니다. 잘못된 설정은 시작에 실패합니다. 미설정 또는 []이면 관리자 키를 인증하지 않습니다.
 
-- 일반 서비스 키로 admin 또는 dashboard 접근: 403 / FORBIDDEN.
+- 일반 서비스 키로 admin 경로 접근: 403 / FORBIDDEN.
 - 관리자 키로 users 또는 events 접근: 403 / FORBIDDEN. 등록·수집용 서비스 키와 분리합니다.
 - 키 누락·오류·복수 헤더: 401 / UNAUTHORIZED.
 - serviceId 생략: 서비스 관리자는 허용 서비스 전체, 전체 관리자는 모든 서비스.
 - serviceId 지정: 권한 내 해당 서비스만 조회. 권한 밖이면 403 / FORBIDDEN.
 - 서비스 ID 권한은 대소문자·바이트를 구분하며 DB의 대소문자 무시 collation으로 범위가 확대되지 않습니다.
 
-보호 경로는 /api/v1/admin 및 하위 경로, /api/v1/dashboard 및 하위 경로입니다. 기존 서비스 키 환경변수와 동작을 유지합니다.
+보호 경로는 /api/v1/admin 및 하위 경로입니다. 기존 서비스 키 환경변수와 동작을 유지합니다.
 
 ## GET /api/v1/admin/users
 
@@ -350,7 +350,9 @@ anomalyScore(number/null), lastAssessedAt(LocalDateTime/null)를 추가합니다
 
 예: GET /api/v1/admin/users?serviceId=ticket-service-a&accountStatus=ACTIVE&minCreditScore=70&sort=creditScore,desc
 
-## GET /api/v1/dashboard/summary
+## GET /api/v1/admin/summary
+
+관리자 대시보드 요약 통계입니다. #57에서 경로를 `/api/v1/dashboard/summary`에서 `/api/v1/admin/summary`로 바꿨습니다. 이전 경로는 제거되어 404입니다. 요청 조건, 응답 형식, 집계 방식은 그대로입니다.
 
 관리자 키 전용입니다. 선택 조건은 serviceId(1~50자, 공백만 입력 불가)이며 권한 범위는 관리자 목록과 같습니다. 기간 조건 없는 누적 통계입니다.
 

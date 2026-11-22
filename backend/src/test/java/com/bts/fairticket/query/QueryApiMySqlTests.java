@@ -196,7 +196,7 @@ class QueryApiMySqlTests {
 
 	@Test
 	void summaryCountsActualRowsWithoutJoinMultiplicationAndHandlesEmptyScope() throws Exception {
-		mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", ADMIN))
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", ADMIN))
 				.andExpect(status().isOk()).andExpect(jsonPath("data.totalUsers").value(2))
 				.andExpect(jsonPath("data.activeUsers").value(1)).andExpect(jsonPath("data.suspendedUsers").value(1))
 				.andExpect(jsonPath("data.usersWithCredit").value(2)).andExpect(jsonPath("data.averageCreditScore").value(60.0))
@@ -210,9 +210,24 @@ class QueryApiMySqlTests {
 		var all = dashboard.summarize(null);
 		assertEquals(jdbc.queryForObject("select count(*) from user_account", Long.class), all.totalUsers());
 		assertEquals(jdbc.queryForObject("select count(*) from behavior_event", Long.class), all.totalEvents());
-		mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", GLOBAL).param("serviceId", "empty-" + UUID.randomUUID()))
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", GLOBAL).param("serviceId", "empty-" + UUID.randomUUID()))
 				.andExpect(status().isOk()).andExpect(jsonPath("data.totalUsers").value(0))
 				.andExpect(jsonPath("data.averageCreditScore").isEmpty()).andExpect(jsonPath("data.eventsByType.BOOKING").value(0));
+	}
+
+	// #57: 서비스 관리자는 권한 밖 서비스의 요약을 볼 수 없고, 범위를 지정하지 않으면 자기 서비스만 집계된다.
+	@Test
+	void summaryNeverExposesServicesOutsideTheAdminScope() throws Exception {
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", ADMIN).param("serviceId", B))
+				.andExpect(status().isForbidden()).andExpect(jsonPath("code").value("FORBIDDEN"));
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", ADMIN).param("serviceId", A))
+				.andExpect(status().isOk()).andExpect(jsonPath("data.totalUsers").value(2));
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", GLOBAL).param("serviceId", B))
+				.andExpect(status().isOk()).andExpect(jsonPath("data.totalUsers").value(1))
+				.andExpect(jsonPath("data.totalEvents").value(1));
+		mvc.perform(get("/api/v1/admin/summary")).andExpect(status().isUnauthorized());
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", SERVICE_KEY)).andExpect(status().isForbidden());
+		mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", ADMIN)).andExpect(status().isNotFound());
 	}
 
 	@Test
@@ -220,7 +235,7 @@ class QueryApiMySqlTests {
 		user(UUID.randomUUID().toString(), A.toUpperCase(java.util.Locale.ROOT), "case-other", "ACTIVE", 100, "BASE");
 		mvc.perform(get("/api/v1/users").header("X-API-Key", SERVICE_KEY))
 				.andExpect(status().isOk()).andExpect(jsonPath("data.totalElements").value(2));
-		mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", ADMIN))
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", ADMIN))
 				.andExpect(status().isOk()).andExpect(jsonPath("data.totalUsers").value(2));
 	}
 
@@ -229,7 +244,7 @@ class QueryApiMySqlTests {
 		jdbc.update("delete from user_credit where user_id = ?", first);
 		mvc.perform(get("/api/v1/users").header("X-API-Key", SERVICE_KEY))
 				.andExpect(status().isInternalServerError()).andExpect(jsonPath("code").value("INTERNAL_SERVER_ERROR"));
-		mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", ADMIN))
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", ADMIN))
 				.andExpect(status().isOk()).andExpect(jsonPath("data.totalUsers").value(2))
 				.andExpect(jsonPath("data.usersWithCredit").value(1)).andExpect(jsonPath("data.averageCreditScore").value(40.0));
 		assertEquals(0, jdbc.queryForObject("select count(*) from user_credit where user_id = ?", Integer.class, first));
