@@ -48,8 +48,7 @@ public class ApiKeyFilter extends OncePerRequestFilter {
 	}
 
 	private boolean isAdminPath(String path) {
-		return path.equals("/api/v1/admin") || path.startsWith("/api/v1/admin/")
-				|| path.equals("/api/v1/dashboard") || path.startsWith("/api/v1/dashboard/");
+		return path.equals("/api/v1/admin") || path.startsWith("/api/v1/admin/");
 	}
 
 	@Override

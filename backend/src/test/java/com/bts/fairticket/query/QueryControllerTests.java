@@ -55,9 +55,9 @@ class QueryControllerTests {
 	@Test
 	void authenticationCoversAllNewRoutesAndNormalizesPaths() throws Exception {
 		for (String path : List.of("/api/v1/users", "/api/v1/users/id/events", "/api/v1/admin/users",
-				"/api/v1/dashboard/summary", "/api/v1/admin/users/id", "/api/v1/admin/users/id/events",
+				"/api/v1/admin/summary", "/api/v1/admin/users/id", "/api/v1/admin/users/id/events",
 				"/api/v1/admin/users/id/assessments", "/api/v1/admin/users/id/features",
-				"/api/v1/users/id/bookings", "/api/v1/admin/users/id/bookings", "/api/v1/admin/users;x=1", "/api/v1/dashboard/summary;x=1")) {
+				"/api/v1/users/id/bookings", "/api/v1/admin/users/id/bookings", "/api/v1/admin/users;x=1", "/api/v1/admin/summary;x=1")) {
 			mvc.perform(get(path)).andExpect(status().isUnauthorized()).andExpect(jsonPath("code").value("UNAUTHORIZED"));
 			mvc.perform(get(path).header("X-API-Key", "wrong")).andExpect(status().isUnauthorized());
 			mvc.perform(get(path).header("X-API-Key", SERVICE_KEY, SERVICE_KEY)).andExpect(status().isUnauthorized());
@@ -65,9 +65,19 @@ class QueryControllerTests {
 		mvc.perform(get("/context/api/v1/admin/users").contextPath("/context")).andExpect(status().isUnauthorized());
 		mvc.perform(get("/api/v1/admin/users").header("X-API-Key", SERVICE_KEY))
 				.andExpect(status().isForbidden()).andExpect(jsonPath("code").value("FORBIDDEN"));
-		mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", SERVICE_KEY)).andExpect(status().isForbidden());
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", SERVICE_KEY)).andExpect(status().isForbidden());
 		mvc.perform(get("/api/v1/users").header("X-API-Key", GLOBAL)).andExpect(status().isForbidden());
 		verifyNoInteractions(users, events, dashboard);
+	}
+
+	// #57: 요약 API는 /api/v1/admin/summary 하나뿐이다. 이전 경로는 어떤 키로도 응답하지 않는다.
+	@Test
+	void formerDashboardSummaryPathNoLongerExists() throws Exception {
+		mvc.perform(get("/api/v1/dashboard/summary")).andExpect(status().isNotFound());
+		for (String key : List.of(ADMIN, GLOBAL, SERVICE_KEY)) {
+			mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", key)).andExpect(status().isNotFound());
+		}
+		verifyNoInteractions(dashboard);
 	}
 
 	@Test
@@ -79,12 +89,12 @@ class QueryControllerTests {
 		mvc.perform(get("/api/v1/admin/users").header("X-API-Key", ADMIN)).andExpect(status().isOk());
 		verify(users).find(any(), eq(Set.of("a", "b")));
 		mvc.perform(get("/api/v1/admin/users").param("serviceId", "c").header("X-API-Key", ADMIN)).andExpect(status().isForbidden());
-		mvc.perform(get("/api/v1/dashboard/summary").param("serviceId", "c").header("X-API-Key", ADMIN)).andExpect(status().isForbidden());
+		mvc.perform(get("/api/v1/admin/summary").param("serviceId", "c").header("X-API-Key", ADMIN)).andExpect(status().isForbidden());
 		mvc.perform(get("/api/v1/admin/users").header("X-API-Key", GLOBAL)).andExpect(status().isOk());
 		verify(users).find(any(), isNull());
-		mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", ADMIN)).andExpect(status().isOk());
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", ADMIN)).andExpect(status().isOk());
 		verify(dashboard).summarize(Set.of("a", "b"));
-		mvc.perform(get("/api/v1/dashboard/summary").header("X-API-Key", GLOBAL)).andExpect(status().isOk());
+		mvc.perform(get("/api/v1/admin/summary").header("X-API-Key", GLOBAL)).andExpect(status().isOk());
 		verify(dashboard).summarize(null);
 	}
 

@@ -10,7 +10,7 @@ import com.bts.fairticket.dashboard.dto.DashboardSummary;
 import com.bts.fairticket.dashboard.service.DashboardQueryService;
 
 @RestController
-@RequestMapping("/api/v1/dashboard")
+@RequestMapping("/api/v1/admin")
 public class DashboardController {
 	private final DashboardQueryService service;
 	public DashboardController(DashboardQueryService service) { this.service = service; }

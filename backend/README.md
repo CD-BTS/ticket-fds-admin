@@ -195,7 +195,7 @@ $env:BTS_API_KEY_HASHES = @{ 'ticket-service-a' = $keyHash } | ConvertTo-Json -C
 
 서비스 키로 GET /api/v1/users 및 GET /api/v1/users/{userId}/events를 호출합니다. 사용자 목록은 현재 Credit을 포함하고 이벤트는 유형·UTC 기간 필터를 지원합니다. 기본 0번 페이지·20건, 최대 100건이며 정렬·필터·응답은 [API 명세](../docs/api-spec.md)를 따릅니다. 기존 사용자 상세·등록·이벤트 수집 계약은 유지합니다.
 
-GET /api/v1/admin/users 및 GET /api/v1/dashboard/summary에는 별도 관리자 키가 필요합니다. 헤더는 동일한 X-API-Key이며 일반 서비스 키는 관리자 경로에서 403입니다. 관리자 키는 관리자 경로 전용이고 일반 사용자·이벤트 경로에서는 403입니다.
+GET /api/v1/admin/users 및 GET /api/v1/admin/summary에는 별도 관리자 키가 필요합니다. 헤더는 동일한 X-API-Key이며 일반 서비스 키는 관리자 경로에서 403입니다. 관리자 키는 관리자 경로 전용이고 일반 사용자·이벤트 경로에서는 403입니다.
 
 서버 환경변수 BTS_ADMIN_API_KEYS를 JSON 배열로 설정합니다. 각 hash는 기존 서비스 키와 같은 SHA-256 방식으로 생성한 서로 다른 키의 해시입니다. 아래 값은 실제 64자리 해시로 교체해야 합니다.
 

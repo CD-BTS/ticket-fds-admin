@@ -52,20 +52,8 @@ async function request<T>(path: string, adminKey: string, params?: Params): Prom
 const id = encodeURIComponent
 
 export const api = {
-  /**
-   * 명세서의 경로는 /api/v1/admin/summary 입니다. 아직 이름을 바꾸지 않은 백엔드(/api/v1/dashboard/summary)도
-   * 로그인할 수 있도록 404일 때만 이전 경로로 한 번 더 시도합니다.
-   */
-  summary: async (key: string, serviceId: string) => {
-    try {
-      return await request<DashboardSummary>('/api/v1/admin/summary', key, { serviceId })
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 404) {
-        return request<DashboardSummary>('/api/v1/dashboard/summary', key, { serviceId })
-      }
-      throw e
-    }
-  },
+  summary: (key: string, serviceId: string) =>
+    request<DashboardSummary>('/api/v1/admin/summary', key, { serviceId }),
 
   concerts: (key: string, serviceId: string, query: Params = {}) =>
     request<PageResponse<Concert>>('/api/v1/admin/concerts', key, { serviceId, ...query }),
