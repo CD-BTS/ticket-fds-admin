@@ -39,14 +39,14 @@ public record EventRequest(
 	}
 
 	@JsonIgnore
-	@AssertTrue(message = "occurredAt은 UTC 오프셋을 포함하고 UTC 기준 1000~9999년 범위의 초 단위 ISO 8601 시각이어야 합니다.")
+	@AssertTrue(message = "occurredAt은 UTC 오프셋을 포함하고 UTC 기준 1000~9999년 범위의 밀리초 이하 정밀도 ISO 8601 시각이어야 합니다.")
 	public boolean isOccurrenceTimeValid() {
 		if (occurredAt == null) {
 			return true;
 		}
 		try {
 			LocalDateTime utc = occurrenceTime();
-			return utc.getYear() >= 1000 && utc.getYear() <= 9999 && utc.getNano() == 0;
+			return utc.getYear() >= 1000 && utc.getYear() <= 9999 && utc.getNano() % 1_000_000 == 0; // DATETIME(3): 밀리초까지만 허용
 		} catch (DateTimeParseException exception) {
 			return false;
 		}
