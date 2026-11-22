@@ -17,16 +17,20 @@ import com.bts.fairticket.behavior.entity.BehaviorEvent;
 import com.bts.fairticket.behavior.repository.BehaviorEventRepository;
 import com.bts.fairticket.common.exception.ApiException;
 import com.bts.fairticket.common.response.ResponseCode;
+import com.bts.fairticket.credit.service.BookingHistoryService;
 import com.bts.fairticket.user.repository.UserAccountRepository;
 
 @Service
 public class EventRegistrationTransaction {
 	private final BehaviorEventRepository events;
 	private final UserAccountRepository users;
+	private final BookingHistoryService bookingHistory;
 
-	public EventRegistrationTransaction(BehaviorEventRepository events, UserAccountRepository users) {
+	public EventRegistrationTransaction(BehaviorEventRepository events, UserAccountRepository users,
+			BookingHistoryService bookingHistory) {
 		this.events = events;
 		this.users = users;
+		this.bookingHistory = bookingHistory;
 	}
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
@@ -41,6 +45,8 @@ public class EventRegistrationTransaction {
 		var saved = events.saveAndFlush(new BehaviorEvent(user, request.serviceId(), request.externalEventId(),
 				request.eventType().name(), request.bookingId(), request.ticketId(),
 				request.occurrenceTime(), request.metadata()));
+		// 새로 저장한 이벤트만 관람 이력에 반영한다(#56). 같은 트랜잭션이라 함께 커밋되거나 함께 롤백된다.
+		bookingHistory.apply(saved);
 		return new RegistrationResult(EventResponse.from(saved), true);
 	}
 

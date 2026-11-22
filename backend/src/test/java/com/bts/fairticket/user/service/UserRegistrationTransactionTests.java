@@ -34,7 +34,7 @@ class UserRegistrationTransactionTests {
 				.register(new UserRegistrationRequest("service", "external", status));
 		assertTrue(result.created());
 		assertEquals(status, result.user().accountStatus());
-		assertEquals(70, result.user().creditScore());
+		assertEquals(50, result.user().creditScore());
 		assertEquals("BASE", result.user().tier());
 		assertDoesNotThrow(() -> java.util.UUID.fromString(result.user().userId()));
 		var order = inOrder(users, credits);

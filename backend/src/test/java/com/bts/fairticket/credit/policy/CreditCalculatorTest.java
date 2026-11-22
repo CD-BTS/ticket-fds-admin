@@ -94,4 +94,33 @@ class CreditCalculatorTest {
         assertThat(result.finalCreditScore()).isZero();
         assertThat(result.grade()).isEqualTo(CreditGrade.HIGH_RISK);
     }
+
+    @Test
+    @DisplayName("저장된 감점으로 계산한 결과는 같은 이력·같은 감점의 수동 계산 결과와 같다")
+    void calculateWithPenalty_MatchesCalculate() {
+        long[][] histories = { {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {10, 2, 1}, {0, 5, 3}, {37, 4, 2} };
+        double[][] penalties = { {0.0, 0.0}, {0.25, 5.0}, {0.75, 15.0}, {1.0, 30.0}, {0.3333, 10.0} };
+        for (long[] history : histories) {
+            for (double[] penalty : penalties) {
+                CalculationResult manual = calculator.calculate(
+                        new CalculationInput(history[0], history[1], history[2], penalty[0], penalty[1]));
+                CalculationResult automatic = calculator.calculateWithPenalty(
+                        history[0], history[1], history[2], manual.dynamicPenalty());
+
+                assertThat(automatic).isEqualTo(manual);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("저장된 감점 적용: 반올림과 0점 하한은 기존 계산과 같다")
+    void calculateWithPenalty_RoundingAndFloor() {
+        // 1회 관람: 54.545 → 55, 감점 10이면 44.545 → 45
+        assertThat(calculator.calculateWithPenalty(1, 0, 0, 0.0).finalCreditScore()).isEqualTo(55);
+        assertThat(calculator.calculateWithPenalty(1, 0, 0, 10.0).finalCreditScore()).isEqualTo(45);
+        // BaseCredit보다 감점이 크면 0
+        CalculationResult floored = calculator.calculateWithPenalty(0, 2, 0, 70.0);
+        assertThat(floored.finalCreditScore()).isZero();
+        assertThat(floored.grade()).isEqualTo(CreditGrade.HIGH_RISK);
+    }
 }

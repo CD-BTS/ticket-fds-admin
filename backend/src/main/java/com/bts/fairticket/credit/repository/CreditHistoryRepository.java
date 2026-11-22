@@ -11,6 +11,8 @@ import com.bts.fairticket.credit.entity.CreditHistory;
 
 public interface CreditHistoryRepository extends JpaRepository<CreditHistory, Long> {
 
+    boolean existsByUser_UserId(String userId);
+
     @Query("SELECT ch FROM CreditHistory ch WHERE ch.user.userId = :userId " +
            "AND (:startDateTime IS NULL OR ch.createdAt >= :startDateTime) " +
            "AND (:endDateTime IS NULL OR ch.createdAt <= :endDateTime) " +

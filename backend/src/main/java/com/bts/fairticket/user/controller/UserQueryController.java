@@ -15,13 +15,19 @@ import com.bts.fairticket.behavior.dto.EventQuery;
 import com.bts.fairticket.behavior.dto.EventResponse;
 import com.bts.fairticket.behavior.service.UserEventQueryService;
 import com.bts.fairticket.common.query.QueryPage;
+import com.bts.fairticket.credit.dto.BookingHistoryQuery;
+import com.bts.fairticket.credit.dto.BookingHistoryResponse;
+import com.bts.fairticket.credit.service.BookingHistoryQueryService;
 
 @RestController
 @RequestMapping("/api/v1/users")
 public class UserQueryController {
 	private final UserQueryService users;
 	private final UserEventQueryService events;
-	public UserQueryController(UserQueryService users, UserEventQueryService events) { this.users = users; this.events = events; }
+	private final BookingHistoryQueryService bookings;
+	public UserQueryController(UserQueryService users, UserEventQueryService events, BookingHistoryQueryService bookings) {
+		this.users = users; this.events = events; this.bookings = bookings;
+	}
 
 	@GetMapping
 	public ApiResponse<PageResponse<UserResponse>> list(@Valid @ModelAttribute UserQuery query,
@@ -38,5 +44,13 @@ public class UserQueryController {
 			@Valid @ModelAttribute EventQuery query,
 			@RequestAttribute(ApiKeyFilter.SERVICE_ATTRIBUTE) String service) {
 		return ApiResponse.success(events.find(userId, service, query));
+	}
+
+	// 티켓 단위 관람 이력(#56)
+	@GetMapping("/{userId}/bookings")
+	public ApiResponse<PageResponse<BookingHistoryResponse>> bookings(@PathVariable @NotBlank @Size(max = 50) String userId,
+			@Valid @ModelAttribute BookingHistoryQuery query,
+			@RequestAttribute(ApiKeyFilter.SERVICE_ATTRIBUTE) String service) {
+		return ApiResponse.success(bookings.find(userId, service, query));
 	}
 }

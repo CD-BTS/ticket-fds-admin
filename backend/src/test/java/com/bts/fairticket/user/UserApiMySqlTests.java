@@ -98,7 +98,7 @@ class UserApiMySqlTests {
 				.andExpect(jsonPath("$.data.serviceId").value(SERVICE_A))
 				.andExpect(jsonPath("$.data.externalUserId").value(external))
 				.andExpect(jsonPath("$.data.createdAt").isNotEmpty())
-				.andExpect(jsonPath("$.data.creditScore").value(70))
+				.andExpect(jsonPath("$.data.creditScore").value(50))
 				.andExpect(jsonPath("$.data.tier").value("BASE"))
 				.andExpect(jsonPath("$.data.anomalyScore").hasJsonPath())
 				.andExpect(jsonPath("$.data.anomalyScore").value(org.hamcrest.Matchers.nullValue()))
@@ -181,7 +181,7 @@ class UserApiMySqlTests {
 			String response = mvc.perform(post("/api/v1/users").header("X-API-Key", KEY_A)
 					.contentType("application/json").content(jsonMapper.writeValueAsString(request)))
 					.andExpect(status().isCreated()).andExpect(jsonPath("$.data.accountStatus").value(expected))
-					.andExpect(jsonPath("$.data.creditScore").value(70))
+					.andExpect(jsonPath("$.data.creditScore").value(50))
 					.andReturn().getResponse().getContentAsString();
 			String id = jsonMapper.readTree(response).get("data").get("userId").asString();
 			assertEquals(expected, jdbc.queryForObject("SELECT account_status FROM user_account WHERE user_id=?", String.class, id));
@@ -301,7 +301,7 @@ class UserApiMySqlTests {
 			String id = results.get(0).user().userId();
 			assertEquals(1, jdbc.queryForObject(
 					"SELECT COUNT(*) FROM user_credit WHERE user_id=?", Integer.class, id));
-			assertTrue(results.stream().allMatch(result -> result.user().creditScore() == 70));
+			assertTrue(results.stream().allMatch(result -> result.user().creditScore() == 50));
 		} finally {
 			executor.shutdownNow();
 			assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));

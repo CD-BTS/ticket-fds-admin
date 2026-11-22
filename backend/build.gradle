@@ -31,6 +31,11 @@ dependencies {
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+// 테스트 중에는 NO_SHOW 주기 작업이 테스트 데이터를 바꾸지 않도록 끈다. 판정 로직은 테스트가 직접 호출한다.
+tasks.withType(Test).configureEach {
+	environment 'NO_SHOW_ENABLED', 'false'
+}
+
 tasks.named('test') {
 	useJUnitPlatform {
 		excludeTags 'mysql'

@@ -40,7 +40,7 @@ X-API-Key: <서비스에 발급한 키>
 
 입력값은 임의로 대소문자 변경이나 trim을 하지 않습니다. 중복 판정은 기존 MySQL UNIQUE 제약의 문자열 비교 규칙을 따릅니다.
 
-신규 등록은 HTTP 201 / `COMMON_201`입니다. UUID 문자열 기반 내부 사용자 ID를 생성하고 신규 계정에 요청의 accountStatus를 반영하며 기존 Entity 기본값으로 Credit 70 / BASE를 동일 트랜잭션에서 저장합니다.
+신규 등록은 HTTP 201 / `COMMON_201`입니다. UUID 문자열 기반 내부 사용자 ID를 생성하고 신규 계정에 요청의 accountStatus를 반영하며 기존 Entity 기본값으로 Credit 50 / BASE를 동일 트랜잭션에서 저장합니다. 초기값 50은 Credit 정책 값이며 관람 이력이 없을 때의 BaseCredit과 같습니다(#56에서 70 → 50으로 정책에 맞춤).
 
 ```json
 {
@@ -52,7 +52,7 @@ X-API-Key: <서비스에 발급한 키>
     "externalUserId": "external-user-123",
     "accountStatus": "ACTIVE",
     "createdAt": "2026-10-10T18:00:00",
-    "creditScore": 70,
+    "creditScore": 50,
     "tier": "BASE"
   },
   "message": "요청이 성공했습니다."
@@ -106,7 +106,7 @@ Assessment가 없으면 anomalyScore와 lastAssessedAt은 null, Policy가 없으
     "externalUserId": "external-user-123",
     "accountStatus": "ACTIVE",
     "createdAt": "2026-10-10T18:00:00",
-    "creditScore": 70,
+    "creditScore": 50,
     "tier": "BASE",
     "anomalyScore": null,
     "lastAssessedAt": null,
@@ -704,5 +704,104 @@ Path Variable concertId는 공백 없는 1~50자이며 Body는 없습니다.
 - 오류 메시지는 INVALID_REQUEST="요청 데이터가 올바르지 않습니다.", UNAUTHORIZED="인증이 필요합니다.",
   FORBIDDEN="접근 권한이 없습니다.", CONCERT_NOT_FOUND="해당 공연을 찾을 수 없습니다.",
   INTERNAL_SERVER_ERROR="서버 내부 오류가 발생했습니다."입니다. MVC의 405/406/415도 기존 공통 규칙을 따릅니다.
-- 신규 빈 DB는 schema.sql, 기존 DB는 `db/manual/038-create-concert.sql`, `db/manual/040-behavior-event-occurred-at-millis.sql`을 순서대로 검토 후 수동 적용합니다.
+- 신규 빈 DB는 schema.sql, 기존 DB는 `db/manual/038-create-concert.sql`, `db/manual/040-behavior-event-occurred-at-millis.sql`, `db/manual/056-booking-history-attendance.sql`을 순서대로 검토 후 수동 적용합니다.
 - Demo Ticketing 연동 방법은 [공연 정보 연동 가이드](concert-integration.md)를 참고합니다.
+
+## 관람 이력 및 Credit 연동 (#56)
+
+`POST /api/v1/events`로 수집한 BOOKING / CANCEL / CHECK_IN 이벤트를 티켓 단위 관람 이력(`booking_history`)에 반영하고, 관람 결과가 바뀌면 Credit을 다시 계산합니다. 이벤트 요청·응답 형식은 바뀌지 않았습니다.
+
+### 이벤트 → 관람 이력
+
+이벤트 저장과 이력 갱신, Credit 갱신은 한 트랜잭션입니다. 하나라도 실패하면 이벤트도 저장되지 않으며 외부 서비스가 재전송하면 다시 처리됩니다. 새로 저장된 이벤트만 반영하고, 같은 이벤트의 재전송(HTTP 200)은 아무것도 바꾸지 않습니다.
+
+| 이벤트 | 사용하는 값 | 처리 |
+|---|---|---|
+| BOOKING | `bookingId`, `metadata.ticketIds`, `metadata.concertId`, `metadata.performanceStartsAt`, `metadata.performanceEndsAt` | 티켓마다 `BOOKED` 행을 만듭니다. 이미 행이 있는 티켓은 예매 정보만 채우고 상태를 바꾸지 않습니다. |
+| CANCEL | `bookingId`, `metadata.ticketIds` | `BOOKED` → `CANCELLED`. `COMPLETED`는 유지합니다. `NO_SHOW`는 `CANCELLED`로 정정합니다(취소가 늦게 전달된 경우). `ticketIds`가 없으면 같은 예매의 모든 티켓이 대상입니다. |
+| CHECK_IN | `ticketId`, `bookingId`, 공연 metadata | `BOOKED` → `COMPLETED`. `NO_SHOW`는 `COMPLETED`로 정정합니다. BOOKING보다 먼저 도착하면 `COMPLETED` 행을 새로 만듭니다. `CANCELLED` / `AUTO_CANCELLED` 티켓은 바꾸지 않습니다. |
+
+- 티켓은 `(service_id, ticket_id)`로 식별하며 DB UNIQUE 제약으로 중복 행을 막습니다.
+- 이벤트 ID만 다른 같은 티켓의 CHECK_IN은 이벤트로는 저장되지만 이력과 Credit은 바뀌지 않습니다.
+- `metadata.ticketIds`가 없는 BOOKING, 공연 시작 시각을 알 수 없는 BOOKING은 이벤트만 저장하고 이력을 만들지 않습니다. 공연 시각이 metadata에 없으면 등록된 공연 정보(`concert`)를 씁니다.
+- 다른 사용자의 티켓으로 이미 기록된 `ticketId`가 오면 이력을 바꾸지 않고 경고 로그만 남깁니다.
+
+### NO_SHOW 판정
+
+주기 작업이 `BOOKED` 상태이고 `공연 종료 시각 + 유예 시간`이 지난 티켓을 `NO_SHOW`로 바꿉니다. CHECK_IN이 없다는 이유만으로 즉시 판정하지 않습니다.
+
+| 설정 (환경변수) | 기본값 | 설명 |
+|---|---|---|
+| `bts.no-show.enabled` (`NO_SHOW_ENABLED`) | `true` | 주기 작업 사용 여부 |
+| `bts.no-show.grace` (`NO_SHOW_GRACE`) | `PT1H` | 공연 종료 후 유예 시간. CHECK_IN이 비동기로 전송·재시도되므로 0으로 두지 않습니다. |
+| `bts.no-show.check-interval-ms` (`NO_SHOW_CHECK_INTERVAL_MS`) | `60000` | 확인 주기 |
+
+- 종료 시각은 BOOKING의 `performanceEndsAt`(예매 당시 값)입니다. 종료 시각이 없는 행은 판정하지 않습니다.
+- 공연 일정이 예매 이후 뒤로 바뀌어 등록된 공연의 종료 시각이 더 늦으면, 이력의 공연 시각을 그 값으로 맞추고 새 종료 시각 기준으로 판정합니다. 앞당겨진 경우에는 예매 당시 종료 시각을 그대로 써서 판정이 빨라지지 않게 합니다.
+- `COMPLETED`, `CANCELLED`, `AUTO_CANCELLED`는 대상이 아닙니다. 조건에 `status = BOOKED`가 있어 같은 티켓을 두 번 판정하지 않습니다.
+- 판정 뒤에 도착한 CHECK_IN은 `NO_SHOW`를 `COMPLETED`로 정정합니다.
+
+### Credit 반영
+
+계산식과 가중치는 그대로입니다: `BaseCredit = 100 × (A + 5) / (A + 2N + 1.5C + 10)`, `Credit = round(max(0, min(100, BaseCredit − DynamicPenalty)))`. A, N, C는 `booking_history`의 `COMPLETED`, `NO_SHOW`, `AUTO_CANCELLED` **티켓 수**입니다.
+
+- 수동 평가(`POST /api/v1/users/{userId}/credit/evaluate`)는 적용한 DynamicPenalty(AI + Rule)를 `user_credit.dynamic_penalty`에 저장합니다. 응답과 계산 결과는 이전과 같습니다.
+- 관람 이력 자동 갱신은 감점을 새로 계산하지 않고 저장된 DynamicPenalty를 그대로 적용합니다. 따라서 같은 관람 이력과 같은 감점이면 수동 평가와 자동 갱신의 결과가 같습니다.
+- Credit이 다시 계산되는 전환은 `→ COMPLETED`, `BOOKED → NO_SHOW`, `NO_SHOW → COMPLETED / CANCELLED`입니다. `BOOKED` 생성과 `BOOKED → CANCELLED`는 A, N, C가 바뀌지 않으므로 계산하지 않습니다.
+- `credit_history`는 상태가 실제로 바뀐 경우에만 남습니다. 이벤트로 인한 변경은 `event_id`에 해당 이벤트가 연결되고, NO_SHOW 판정은 `event_id`가 NULL입니다. 한 사용자의 티켓 여러 장이 한 번의 판정에서 함께 NO_SHOW가 되면 한 건으로 기록합니다.
+- 감점 정보가 저장되지 않은 기존 사용자(`dynamic_penalty`가 NULL):
+  - 평가 이력(`credit_history`)이 없으면 감점을 받은 적이 없으므로 감점 0으로 계산합니다.
+  - 평가 이력이 있으면 당시 감점을 알 수 없으므로 점수를 역산하지 않고 그대로 둡니다. 관람 이력은 계속 쌓이고, 다음 수동 평가가 감점을 저장하면서 그 이력을 반영합니다.
+
+### GET /api/v1/users/{userId}/bookings
+
+사용자의 티켓별 관람 이력을 조회합니다. 서비스 API Key(`X-API-Key`)가 필요하며 해당 서비스의 사용자만 조회할 수 있습니다. 다른 서비스의 사용자는 404 / `USER_NOT_FOUND`입니다.
+
+| Query | 설명 |
+|---|---|
+| `page`, `size` | 조회 API 공통 규칙과 같습니다(기본 0 / 20, 최대 100). |
+| `sort` | `performanceStartsAt`(기본, desc), `bookedAt`, `historyId` 중 하나와 `asc` / `desc` |
+| `status` | `BOOKED`, `COMPLETED`, `NO_SHOW`, `AUTO_CANCELLED`, `CANCELLED` 중 하나. 그 외 값은 400입니다. |
+
+```json
+{
+  "success": true,
+  "code": "COMMON_200",
+  "message": "요청이 성공했습니다.",
+  "data": {
+    "content": [
+      {
+        "historyId": 12,
+        "serviceId": "ticket-service-a",
+        "bookingId": "b_0d6a…",
+        "ticketId": "t_91c2…",
+        "concertId": "c1",
+        "concertName": "테스트 공연",
+        "venue": "테스트 홀",
+        "status": "COMPLETED",
+        "bookedAt": "2026-10-01T09:00:00Z",
+        "performanceStartsAt": "2026-10-10T10:00:00Z",
+        "performanceEndsAt": "2026-10-10T12:00:00Z",
+        "createdAt": "2026-10-01T09:00:01Z"
+      }
+    ],
+    "page": 0, "size": 20, "totalElements": 1, "totalPages": 1, "hasNext": false
+  }
+}
+```
+
+- 시각은 모두 UTC입니다. `performanceStartsAt` / `performanceEndsAt`은 이력에 저장된 값이고, `concertName` / `venue`는 등록된 공연 정보가 있을 때만 채워지며 없으면 `null`입니다.
+- #56 이전에 적재된 행은 `serviceId`, `ticketId`, `performanceEndsAt`이 `null`입니다.
+
+### GET /api/v1/admin/users/{userId}/bookings
+
+관리자 API Key가 필요합니다. Query와 응답은 위와 같고, 관리자 키의 서비스 범위를 벗어난 사용자는 404 / `USER_NOT_FOUND`입니다. 서비스 키로 호출하면 403입니다.
+
+### DB 변경과 적용
+
+기존 DB에는 `backend/db/manual/056-booking-history-attendance.sql`을 검토 후 한 번 수동 적용합니다. 애플리케이션은 스키마를 자동으로 바꾸지 않으며, 적용 전에 새 버전을 띄우면 `booking_history` / `user_credit` 조회·저장이 실패합니다.
+
+- `booking_history`: `service_id`, `ticket_id`, `event_ends_at` 추가, `booking_reference`를 100자로 확장, `UNIQUE (service_id, ticket_id)`와 `(status, event_ends_at)` 인덱스 추가, 상태 `BOOKED` 추가.
+- `user_credit`: `credit_score` 기본값 70 → 50, `dynamic_penalty` 추가.
+- 기존 행은 삭제·수정하지 않습니다. 기존 사용자의 점수(70 포함)는 그대로 남습니다.
+- 이미 적용한 DB에서 다시 실행하면 첫 문장이 `Duplicate column name 'service_id'`로 실패하고 아무것도 바뀌지 않습니다.

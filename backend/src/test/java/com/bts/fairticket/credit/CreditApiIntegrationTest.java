@@ -59,7 +59,7 @@ class CreditApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.userId").value(savedUser.getUserId()))
-                .andExpect(jsonPath("$.data.creditScore").value(70))
+                .andExpect(jsonPath("$.data.creditScore").value(50))
                 .andExpect(jsonPath("$.data.tier").value("BASE"));
     }
 
