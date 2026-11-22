@@ -17,6 +17,14 @@ const SIZE = 20
 
 export default function UserList({ session, tiers, onOpenUser, onError }: Props) {
   const [text, setText] = useState('')
+  // 폭 760px 이하(모바일)에서는 안내 문구를 짧게 보여 줍니다.
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 760px)')
+    const on = () => setNarrow(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
   const [tier, setTier] = useState('')
   const applied = useRef({ text: '', tier: '' })
   const [data, setData] = useState<PageResponse<AdminUser> | null>(null)
@@ -47,7 +55,7 @@ export default function UserList({ session, tiers, onOpenUser, onError }: Props)
     <section className="page">
       <h2 className="section-label big">사용자 검색</h2>
       <form className="search-bar boxed" onSubmit={e => { e.preventDefault(); search() }}>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder="이름(ID) 입력 — 정확히 일치하는 값만 검색됩니다" />
+        <input value={text} onChange={e => setText(e.target.value)} placeholder={narrow ? '이름(ID) 입력' : '이름(ID) 입력 — 정확히 일치하는 값만 검색됩니다'} />
         <select value={tier} onChange={e => setTier(e.target.value)} aria-label="등급 선택">
           <option value="">등급 선택</option>
           {tiers.map(t => <option key={t} value={t}>{t}</option>)}

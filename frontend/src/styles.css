@@ -141,17 +141,27 @@ td b{display:block}td small{display:block;color:var(--muted);font-size:11px}
 .assess table{margin-top:8px}.assess th{position:static}
 
 @media(max-width:760px){
-  .nav{height:auto;flex-wrap:wrap;padding:10px 14px;gap:6px}
-  .nav nav{flex-wrap:wrap;gap:2px}
-  .nav nav>button{padding:0 10px;font-size:14px}
+  .nav{height:auto;flex-wrap:nowrap;padding:8px 10px;gap:6px}
+  .nav-logo-box{min-width:44px;height:30px;padding:0 8px;font-size:12px}
+  .nav nav{flex-wrap:nowrap;gap:0;min-width:0}
+  .nav nav>button{padding:0 8px;height:36px;font-size:13px;white-space:nowrap}
+  .nav-user{padding-left:4px;gap:0;font-size:0}
+  .nav-user b{display:none}
+  .nav-logout{font-size:12px;white-space:nowrap}
   main{padding:22px 14px 60px}
-  .intro-hero{flex-direction:column;align-items:flex-start;gap:18px}
-  .intro-hero h1{font-size:30px;white-space:normal}
-  .logo-box{width:130px;height:130px}
+  .intro-hero{gap:14px}
+  .intro-hero h1{font-size:24px;letter-spacing:-1px}
+  .logo-box{width:84px;height:84px;font-size:12px}
+  .logo-box svg{width:28px;height:28px}
   .concert-card{flex-wrap:wrap;gap:10px}
   .concert-detail{grid-template-columns:1fr;gap:24px}
   .concert-left h1{font-size:30px}
   .summary-card{grid-template-columns:1fr 1fr}
   .who{grid-column:1/-1}
-  table{min-width:560px}
+  .table-scroll table{min-width:560px}
+  .feature-table{min-width:0;table-layout:auto}
+  .feature-table td{word-break:break-word}
+  .feature-table code{font-size:11px;word-break:break-all}
+  .assess{overflow-x:auto}
+  .assess table{min-width:440px}
 }
