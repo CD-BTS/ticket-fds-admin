@@ -75,7 +75,7 @@ class JpaRepositoryMySqlTests {
 		UserCredit loadedCredit = userCreditRepository.findById(user.getUserId()).orElseThrow();
 		assertEquals(user.getUserId(), credit.getUserId());
 		assertEquals(user.getUserId(), loadedCredit.getUser().getUserId());
-		assertEquals(70, loadedCredit.getCreditScore());
+		assertEquals(50, loadedCredit.getCreditScore());
 		assertEquals("BASE", loadedCredit.getTier());
 		assertNotNull(loadedCredit.getUpdatedAt());
 		BehaviorEvent loadedEvent = behaviorEventRepository.findById(event.getEventId()).orElseThrow();

@@ -20,7 +20,8 @@ CREATE TABLE `behavior_event` (
 
 CREATE TABLE `user_credit` (
   `user_id` varchar(50) PRIMARY KEY,
-  `credit_score` int NOT NULL DEFAULT 70 COMMENT '관람 신용 점수 0~100, 초기값 70',
+  `credit_score` int NOT NULL DEFAULT 50 COMMENT '관람 신용 점수 0~100, 초기값 50',
+  `dynamic_penalty` double COMMENT '마지막 평가에서 적용한 DynamicPenalty(AI+Rule, 0~70). 미저장이면 NULL',
   `tier` varchar(20) NOT NULL DEFAULT 'BASE' COMMENT '관람 신용 등급. 구체적인 등급 기준은 추후 확정',
   `updated_at` datetime NOT NULL DEFAULT (now()) COMMENT '신용 점수 및 등급 최종 갱신 시각'
 );
@@ -55,19 +56,24 @@ CREATE TABLE `policy_decision` (
   `decided_at` datetime NOT NULL DEFAULT (now()) COMMENT '정책 결정 시각'
 );
 
--- 7. 예매 및 관람 이력 테이블
+-- 7. 예매 및 관람 이력 테이블. 티켓 1장당 1행(#56). 기존 DB에는 db/manual/056-booking-history-attendance.sql만 적용한다.
 CREATE TABLE IF NOT EXISTS booking_history (
     booking_id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id VARCHAR(50) NOT NULL,
-    booking_reference VARCHAR(50) NOT NULL COMMENT '외부 예매 고유 번호',
+    service_id VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL COMMENT '외부 티켓팅 서비스 식별자. #56 이전 행은 NULL',
+    ticket_id VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL COMMENT '외부 티켓 ID. 관람 이력은 티켓 단위. #56 이전 행은 NULL',
+    booking_reference VARCHAR(100) NOT NULL COMMENT '외부 예매 고유 번호 (behavior_event.booking_id와 같은 길이)',
     event_id VARCHAR(50) NULL COMMENT '공연/경기 ID',
-    status VARCHAR(20) NOT NULL COMMENT 'COMPLETED, NO_SHOW, AUTO_CANCELLED, CANCELLED',
+    status VARCHAR(20) NOT NULL COMMENT 'BOOKED, COMPLETED, NO_SHOW, AUTO_CANCELLED, CANCELLED',
     booked_at DATETIME NOT NULL COMMENT '예매 시점',
     event_at DATETIME NOT NULL COMMENT '공연/경기 관람 예정 시점',
+    event_ends_at DATETIME NULL COMMENT '공연 종료 시각 (UTC, 예매 당시 값). NO_SHOW 판정 기준',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_booking_user FOREIGN KEY (user_id) REFERENCES user_account (user_id) ON DELETE CASCADE,
+    UNIQUE KEY uk_booking_service_ticket (service_id, ticket_id),
     INDEX idx_booking_user_status (user_id, status),
-    INDEX idx_booking_user_event (user_id, event_at)
+    INDEX idx_booking_user_event (user_id, event_at),
+    INDEX idx_booking_status_ends (status, event_ends_at)
 ) ENGINE=InnoDB; -- 문자셋·collation은 DB 기본값을 따른다. 명시하면 user_account FK와 어긋날 수 있다(#46)
 
 -- 8. 결제 카드 식별 정보 테이블 (다계정 카드 공유 탐지용)

@@ -60,7 +60,7 @@ class PolicyDecisionServiceTest {
     @DisplayName("AI 분석 이력이 없어도 신용 점수 기반으로 정상 판정 (anomalyScore=null)")
     void decidePolicy_WithoutAiScore_Success() {
         UserAccount user = new UserAccount("user1", "service-1", "ext-1");
-        UserCredit userCredit = new UserCredit(user); // 기본 creditScore = 70
+        UserCredit userCredit = new UserCredit(user); // 기본 creditScore = 50
 
         given(userAccountRepository.findById("user1")).willReturn(Optional.of(user));
         given(userCreditRepository.findById("user1")).willReturn(Optional.of(userCredit));

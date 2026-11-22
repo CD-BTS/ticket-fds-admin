@@ -49,13 +49,15 @@ class QueryControllerTests {
 	@MockitoBean com.bts.fairticket.policy.repository.PolicyDecisionRepository policies;
 	@MockitoBean com.bts.fairticket.admin.repository.AdminAssessmentQueryRepository history;
 	@MockitoBean com.bts.fairticket.risk.service.FeatureAggregationService featureService;
+	@MockitoBean com.bts.fairticket.credit.service.BookingHistoryQueryService bookings;
 	@MockitoBean java.time.Clock clock;
 
 	@Test
 	void authenticationCoversAllNewRoutesAndNormalizesPaths() throws Exception {
 		for (String path : List.of("/api/v1/users", "/api/v1/users/id/events", "/api/v1/admin/users",
 				"/api/v1/dashboard/summary", "/api/v1/admin/users/id", "/api/v1/admin/users/id/events",
-				"/api/v1/admin/users/id/assessments", "/api/v1/admin/users/id/features", "/api/v1/admin/users;x=1", "/api/v1/dashboard/summary;x=1")) {
+				"/api/v1/admin/users/id/assessments", "/api/v1/admin/users/id/features",
+				"/api/v1/users/id/bookings", "/api/v1/admin/users/id/bookings", "/api/v1/admin/users;x=1", "/api/v1/dashboard/summary;x=1")) {
 			mvc.perform(get(path)).andExpect(status().isUnauthorized()).andExpect(jsonPath("code").value("UNAUTHORIZED"));
 			mvc.perform(get(path).header("X-API-Key", "wrong")).andExpect(status().isUnauthorized());
 			mvc.perform(get(path).header("X-API-Key", SERVICE_KEY, SERVICE_KEY)).andExpect(status().isUnauthorized());

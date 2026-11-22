@@ -89,7 +89,7 @@ class UserServiceTests {
 		stubOwnUser();
 		var result = service.getUser("id", "service-a");
 		assertEquals("id", result.userId());
-		assertEquals(70, result.creditScore());
+		assertEquals(50, result.creditScore());
 		assertEquals("BASE", result.tier());
 		assertNull(result.anomalyScore());
 		assertNull(result.lastAssessedAt());

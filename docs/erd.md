@@ -20,7 +20,7 @@ name(200), starts_at/ends_at(UTC DATETIME 초 단위), venue(255)를 저장합�
 이벤트와 FK를 연결하지 않으므로 미등록 공연의 이벤트도 기존 수집 계약대로 저장할 수 있습니다.
 공연 등록 후 동일한 서비스·metadata.concertId의 기존 이벤트가 자동으로 조회·집계 대상이 됩니다.
 
-기존 DB에는 `db/manual/038-create-concert.sql`, `db/manual/040-behavior-event-occurred-at-millis.sql`을 순서대로 검토 후 1회씩 수동 적용합니다.
+기존 DB에는 `db/manual/038-create-concert.sql`, `db/manual/040-behavior-event-occurred-at-millis.sql`, `db/manual/056-booking-history-attendance.sql`을 순서대로 검토 후 1회씩 수동 적용합니다.
 전체 schema.sql은 신규 빈 DB 전용이며 기존 DB에 재실행하지 않습니다.
 이 작업에서는 실제 개발 DB에 SQL을 적용하지 않습니다.
 concert의 쓰기·조회는 원자적 upsert와 집계 SQL을 위해 JDBC Repository를 사용하며 Entity는 스키마 매핑 검증에 사용합니다.
@@ -45,7 +45,7 @@ concert의 쓰기·조회는 원자적 upsert와 집계 SQL을 위해 JDBC Repos
 
 - 길이, NULL, PK, 복합 UNIQUE 및 18개 인덱스 정의를 SQL에 맞춰 매핑합니다. FK 지원에 필요한 추가 인덱스는 MySQL에서 생성될 수 있습니다.
 - 상태, 등급, 이벤트 종류 및 대응 행동은 VARCHAR 문자열로 유지합니다. 새로운 enum, 점수 범위 CHECK 또는 서비스 정책을 추가하지 않습니다.
-- `account_status=ACTIVE`, `credit_score=70`, `tier=BASE`는 SQL 기본값과 동일한 Entity 초기값을 사용합니다.
+- `account_status=ACTIVE`, `credit_score=50`, `tier=BASE`는 SQL 기본값과 동일한 Entity 초기값을 사용합니다. Credit 초기값 50은 정책 값입니다(#56에서 70 → 50).
 - DATETIME 기본값은 DB의 `now()`를 사용합니다. Hibernate `@Generated`로 INSERT 후 생성값을 읽습니다.
 - `user_credit.updated_at`은 INSERT 기본값만 있습니다. 자동 갱신 정책이나 `ON UPDATE`를 추가하지 않습니다.
 - JSON `behavior_event.metadata`는 `@JdbcTypeCode(SqlTypes.JSON)`와 `Map<String, Object>`로 매핑합니다. NULL을 허용합니다.
@@ -65,3 +65,19 @@ concert의 쓰기·조회는 원자적 upsert와 집계 SQL을 위해 JDBC Repos
 # DB_URL, DB_USERNAME, DB_PASSWORD를 설정한 뒤 실행
 .\gradlew.bat mysqlTest --rerun-tasks
 ```
+
+## 관람 이력과 Credit 감점 (#56)
+
+`booking_history`는 티켓 1장당 1행입니다. BOOKING / CANCEL / CHECK_IN 이벤트와 NO_SHOW 판정이 이 테이블을 갱신하고, Credit 계산은 상태별 행 수를 셉니다. 처리 규칙은 [API 명세](api-spec.md)의 "관람 이력 및 Credit 연동"을 따릅니다.
+
+| 컬럼 | 설명 |
+|---|---|
+| `service_id`, `ticket_id` | 외부 서비스와 티켓 식별자. `utf8mb4_bin`으로 대소문자까지 구분하며 `UNIQUE (service_id, ticket_id)`입니다. #56 이전 행은 NULL이고 NULL끼리는 충돌하지 않습니다. |
+| `booking_reference` | 외부 예매 ID. `behavior_event.booking_id`와 같은 100자입니다. |
+| `event_id` | 공연 ID(`concert.concert_id`와 같은 값, FK 없음) |
+| `status` | `BOOKED`(예매, 미입장) → `COMPLETED` / `CANCELLED` / `NO_SHOW`. `NO_SHOW`는 뒤늦은 CHECK_IN·CANCEL로 정정될 수 있습니다. `AUTO_CANCELLED`는 현재 만드는 이벤트가 없습니다. |
+| `booked_at`, `event_at`, `event_ends_at` | UTC, 초 단위. `event_ends_at`은 NO_SHOW 판정 기준이며 모르면 NULL입니다. |
+
+`user_credit.dynamic_penalty`는 마지막 평가에서 적용한 DynamicPenalty(0~70)입니다. NULL은 "저장된 감점 정보 없음"을 뜻하며 0과 다릅니다. 관람 이력 자동 갱신은 이 값을 그대로 적용하고, 값을 바꾸는 것은 수동 평가뿐입니다.
+
+같은 사용자의 이력 변경과 Credit 갱신은 `user_credit` 행 잠금(`SELECT … FOR UPDATE`)으로 순서대로 처리합니다. 이벤트 처리와 NO_SHOW 판정이 같은 티켓을 동시에 바꾸지 않습니다.

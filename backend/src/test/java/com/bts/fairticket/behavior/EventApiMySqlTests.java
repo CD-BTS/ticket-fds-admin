@@ -78,6 +78,11 @@ class EventApiMySqlTests {
 
 	@AfterEach
 	void cleanOnlyOwnRandomServiceFixtures() {
+		// CHECK_IN 이벤트는 관람 이력과 Credit 이력을 만든다(#56). 이벤트를 참조하는 행부터 지운다.
+		for (String table : List.of("credit_history", "booking_history")) {
+			jdbc.update("DELETE FROM " + table + " WHERE user_id IN "
+					+ "(SELECT user_id FROM user_account WHERE service_id IN (?, ?))", SERVICE_A, SERVICE_B);
+		}
 		jdbc.update("DELETE FROM behavior_event WHERE service_id IN (?, ?)", SERVICE_A, SERVICE_B);
 		jdbc.update("DELETE FROM user_credit WHERE user_id IN "
 				+ "(SELECT user_id FROM user_account WHERE service_id IN (?, ?))", SERVICE_A, SERVICE_B);

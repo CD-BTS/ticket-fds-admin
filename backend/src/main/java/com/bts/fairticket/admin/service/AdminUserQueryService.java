@@ -16,6 +16,9 @@ import com.bts.fairticket.common.auth.AdminScope;
 import com.bts.fairticket.common.exception.ApiException;
 import com.bts.fairticket.common.response.PageResponse;
 import com.bts.fairticket.common.response.ResponseCode;
+import com.bts.fairticket.credit.dto.BookingHistoryQuery;
+import com.bts.fairticket.credit.dto.BookingHistoryResponse;
+import com.bts.fairticket.credit.service.BookingHistoryQueryService;
 import com.bts.fairticket.policy.dto.PolicyDecisionResponse;
 import com.bts.fairticket.policy.repository.PolicyDecisionRepository;
 import com.bts.fairticket.risk.entity.RiskAssessment;
@@ -38,15 +41,16 @@ public class AdminUserQueryService {
     private final PolicyDecisionRepository policies;
     private final AdminAssessmentQueryRepository history;
     private final FeatureAggregationService features;
+    private final BookingHistoryQueryService bookings;
     private final Clock clock;
 
     public AdminUserQueryService(UserQueryService users, UserService details, UserEventQueryService events,
             UserAccountRepository accounts, RiskAssessmentRepository assessments,
             PolicyDecisionRepository policies, AdminAssessmentQueryRepository history,
-            FeatureAggregationService features, Clock clock) {
+            FeatureAggregationService features, BookingHistoryQueryService bookings, Clock clock) {
         this.users = users; this.details = details; this.events = events; this.accounts = accounts;
         this.assessments = assessments; this.policies = policies; this.history = history;
-        this.features = features; this.clock = clock;
+        this.features = features; this.bookings = bookings; this.clock = clock;
     }
 
     public PageResponse<AdminUserResponse> find(UserQuery query, AdminScope scope) {
@@ -77,6 +81,11 @@ public class AdminUserQueryService {
     public PageResponse<EventResponse> events(String userId, EventQuery query, AdminScope scope) {
         var user = authorizedUser(userId, scope);
         return events.find(user.getUserId(), user.getServiceId(), query);
+    }
+
+    public PageResponse<BookingHistoryResponse> bookings(String userId, BookingHistoryQuery query, AdminScope scope) {
+        var user = authorizedUser(userId, scope);
+        return bookings.find(user.getUserId(), user.getServiceId(), query);
     }
 
     public PageResponse<AssessmentResponse> assessments(String userId, AssessmentQuery query, AdminScope scope) {

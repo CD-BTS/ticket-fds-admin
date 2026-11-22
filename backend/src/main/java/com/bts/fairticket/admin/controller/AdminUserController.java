@@ -13,6 +13,8 @@ import com.bts.fairticket.admin.dto.*;
 import com.bts.fairticket.admin.service.AdminUserQueryService;
 import com.bts.fairticket.behavior.dto.EventQuery;
 import com.bts.fairticket.behavior.dto.EventResponse;
+import com.bts.fairticket.credit.dto.BookingHistoryQuery;
+import com.bts.fairticket.credit.dto.BookingHistoryResponse;
 
 @RestController
 @RequestMapping("/api/v1/admin/users")
@@ -37,6 +39,14 @@ public class AdminUserController {
 			@Valid @ModelAttribute EventQuery query,
 			@RequestAttribute(ApiKeyFilter.ADMIN_ATTRIBUTE) AdminScope scope) {
 		return ApiResponse.success(users.events(userId, query, scope));
+	}
+
+	// 티켓 단위 관람 이력(#56)
+	@GetMapping("/{userId}/bookings")
+	public ApiResponse<PageResponse<BookingHistoryResponse>> bookings(@PathVariable @NotBlank @Size(max = 50) String userId,
+			@Valid @ModelAttribute BookingHistoryQuery query,
+			@RequestAttribute(ApiKeyFilter.ADMIN_ATTRIBUTE) AdminScope scope) {
+		return ApiResponse.success(users.bookings(userId, query, scope));
 	}
 
 	@GetMapping("/{userId}/assessments")

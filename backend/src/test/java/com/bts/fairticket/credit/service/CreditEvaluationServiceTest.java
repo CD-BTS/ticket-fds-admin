@@ -59,7 +59,7 @@ class CreditEvaluationServiceTest {
         // Given
         String userId = "good-user-1";
         UserAccount user = new UserAccount(userId, "service-1", "ext-good");
-        UserCredit userCredit = new UserCredit(user); // 초기 50점 또는 100점
+        UserCredit userCredit = new UserCredit(user); // 초기 50점
 
         given(userAccountRepository.findById(userId)).willReturn(Optional.of(user));
         given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
@@ -124,5 +124,88 @@ class CreditEvaluationServiceTest {
         assertThat(summary.penaltyPolicy()).contains("후순위");
 
         verify(creditHistoryRepository).save(any(CreditHistory.class));
+    }
+
+    private static BookingStats stats(long completed, long noShow, long autoCancelled) {
+        return new BookingStats() {
+            public Long getCompletedCount() { return completed; }
+            public Long getNoShowCount() { return noShow; }
+            public Long getAutoCancelledCount() { return autoCancelled; }
+        };
+    }
+
+    @Test
+    @DisplayName("수동 평가는 적용한 DynamicPenalty를 저장한다")
+    void evaluateAndApplyCredit_StoresDynamicPenalty() {
+        String userId = "penalty-user";
+        UserAccount user = new UserAccount(userId, "service-1", "ext-penalty");
+        UserCredit userCredit = new UserCredit(user);
+        given(userAccountRepository.findById(userId)).willReturn(Optional.of(user));
+        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(bookingHistoryRepository.getBookingStatsByUserId(userId)).willReturn(null);
+        given(riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId))
+                .willReturn(Optional.empty());
+        given(userCardRepository.findByUser_UserId(userId)).willReturn(List.of());
+
+        // IP 집중도 5 + 요청 간격 분산 5 = 10
+        creditEvaluationService.evaluateAndApplyCredit(userId, new CreditEvaluationContext("평가", 5, 0.5));
+
+        assertThat(userCredit.getCreditScore()).isEqualTo(40);
+        assertThat(userCredit.getDynamicPenalty()).isEqualTo(10.0);
+    }
+
+    @Test
+    @DisplayName("관람 이력 자동 갱신은 저장된 감점을 유지하고 이벤트와 연결된 이력을 한 건 남긴다")
+    void applyAttendanceChange_KeepsStoredPenalty() {
+        String userId = "auto-user";
+        UserAccount user = new UserAccount(userId, "service-1", "ext-auto");
+        UserCredit userCredit = new UserCredit(user);
+        userCredit.updateCreditScore(40, "NORMAL", 10.0);
+        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(bookingHistoryRepository.getBookingStatsByUserId(userId)).willReturn(stats(1, 0, 0));
+
+        var summary = creditEvaluationService.applyAttendanceChange(user, null, "관람 완료").orElseThrow();
+
+        // 54.545 - 10 = 44.545 → 45
+        assertThat(summary.oldScore()).isEqualTo(40);
+        assertThat(summary.newScore()).isEqualTo(45);
+        assertThat(userCredit.getDynamicPenalty()).isEqualTo(10.0);
+        verify(creditHistoryRepository).save(any(CreditHistory.class));
+        // 카드·AI 감점을 다시 계산하지 않는다.
+        org.mockito.Mockito.verifyNoInteractions(userCardRepository, riskAssessmentRepository);
+    }
+
+    @Test
+    @DisplayName("평가 이력이 없는 기존 사용자는 감점 0으로 계산한다")
+    void applyAttendanceChange_NeverEvaluatedUsesZeroPenalty() {
+        String userId = "new-user";
+        UserAccount user = new UserAccount(userId, "service-1", "ext-new");
+        UserCredit userCredit = new UserCredit(user);
+        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(creditHistoryRepository.existsByUser_UserId(userId)).willReturn(false);
+        given(bookingHistoryRepository.getBookingStatsByUserId(userId)).willReturn(stats(0, 1, 0));
+
+        var summary = creditEvaluationService.applyAttendanceChange(user, null, "노쇼").orElseThrow();
+
+        // 100 * 5 / (2 + 10) = 41.67 → 42
+        assertThat(summary.newScore()).isEqualTo(42);
+        assertThat(userCredit.getDynamicPenalty()).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("감점을 알 수 없는 기존 평가 사용자는 점수를 역산하지 않고 그대로 둔다")
+    void applyAttendanceChange_UnknownPenaltyLeavesScoreUnchanged() {
+        String userId = "legacy-user";
+        UserAccount user = new UserAccount(userId, "service-1", "ext-legacy");
+        UserCredit userCredit = new UserCredit(user);
+        userCredit.updateCreditScore(35, "SUSPICIOUS");
+        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(creditHistoryRepository.existsByUser_UserId(userId)).willReturn(true);
+
+        assertThat(creditEvaluationService.applyAttendanceChange(user, null, "관람 완료")).isEmpty();
+
+        assertThat(userCredit.getCreditScore()).isEqualTo(35);
+        assertThat(userCredit.getDynamicPenalty()).isNull();
+        verify(creditHistoryRepository, org.mockito.Mockito.never()).save(any(CreditHistory.class));
     }
 }

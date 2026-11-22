@@ -30,6 +30,7 @@ import static org.mockito.Mockito.*;
 class EventServiceTests {
 	@Mock private BehaviorEventRepository events;
 	@Mock private UserAccountRepository users;
+	@Mock private com.bts.fairticket.credit.service.BookingHistoryService bookingHistory;
 	@Mock private EventRegistrationTransaction transaction;
 
 	private EventRequest request(EventType type) {
@@ -52,7 +53,7 @@ class EventServiceTests {
 		when(users.findById("user")).thenReturn(Optional.of(new UserAccount("user", "service", "external-user")));
 		when(events.findByServiceIdAndExternalEventId("service", "external")).thenReturn(Optional.empty());
 		when(events.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
-		var result = new EventRegistrationTransaction(events, users).register(request);
+		var result = new EventRegistrationTransaction(events, users, bookingHistory).register(request);
 		assertTrue(result.created());
 		assertEquals(type.name(), result.event().eventType());
 		assertEquals(request.occurredAt(), result.event().occurredAt());
@@ -70,7 +71,7 @@ class EventServiceTests {
 		assertEquals(utc.occurrenceTime(), seoul.occurrenceTime());
 		assertEquals(LocalDateTime.of(2026, 9, 13, 16, 53, 52), utc.occurrenceTime());
 		when(events.findByServiceIdAndExternalEventId("service", "external")).thenReturn(Optional.of(event(utc)));
-		var replay = new EventRegistrationTransaction(events, users).findExisting(seoul).orElseThrow();
+		var replay = new EventRegistrationTransaction(events, users, bookingHistory).findExisting(seoul).orElseThrow();
 		assertFalse(replay.created());
 		assertEquals("2026-09-13T16:53:52Z", replay.event().occurredAt());
 		verify(events, never()).saveAndFlush(any());
@@ -82,7 +83,7 @@ class EventServiceTests {
 				Optional.of(new UserAccount("user", "other", "external-user")))) {
 			when(users.findById("user")).thenReturn(user);
 			var error = assertThrows(ApiException.class,
-					() -> new EventRegistrationTransaction(events, users).register(request(EventType.BOOKING)));
+					() -> new EventRegistrationTransaction(events, users, bookingHistory).register(request(EventType.BOOKING)));
 			assertEquals(ResponseCode.USER_NOT_FOUND, error.getResponseCode());
 		}
 		verifyNoInteractions(events);
@@ -102,7 +103,7 @@ class EventServiceTests {
 		var saved = event(new EventRequest("service", "external", "user", EventType.BOOKING, "booking", null,
 				request.occurredAt(), Map.of("object", Map.of("b", 2L, "a", 1.0))));
 		when(events.findByServiceIdAndExternalEventId("service", "external")).thenReturn(Optional.of(saved));
-		assertFalse(new EventRegistrationTransaction(events, users).findExisting(request).orElseThrow().created());
+		assertFalse(new EventRegistrationTransaction(events, users, bookingHistory).findExisting(request).orElseThrow().created());
 		verify(events, never()).saveAndFlush(any());
 	}
 
@@ -114,7 +115,7 @@ class EventServiceTests {
 		when(events.findByServiceIdAndExternalEventId("service", "external"))
 				.thenReturn(Optional.of(event(request)));
 		when(users.findById("USER")).thenReturn(Optional.of(new UserAccount("user", "service", "external-user")));
-		assertFalse(new EventRegistrationTransaction(events, users).findExisting(alias).orElseThrow().created());
+		assertFalse(new EventRegistrationTransaction(events, users, bookingHistory).findExisting(alias).orElseThrow().created());
 		verify(events, never()).saveAndFlush(any());
 	}
 
@@ -133,7 +134,7 @@ class EventServiceTests {
 		changed.forEach(saved -> {
 			when(events.findByServiceIdAndExternalEventId("service", "external")).thenReturn(Optional.of(saved));
 			assertEquals(ResponseCode.DATA_CONFLICT, assertThrows(ApiException.class,
-					() -> new EventRegistrationTransaction(events, users).findExisting(request)).getResponseCode());
+					() -> new EventRegistrationTransaction(events, users, bookingHistory).findExisting(request)).getResponseCode());
 		});
 		verify(events, never()).saveAndFlush(any());
 	}
