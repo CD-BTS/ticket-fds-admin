@@ -89,10 +89,18 @@ export interface Concert {
   venue: string
 }
 
+/**
+ * 아래 네 필드는 명세서상 "진행 중"인 항목(예매 성공·실패, 이상·제재 사용자 수)입니다.
+ * 백엔드가 내려주기 전에는 undefined이며 화면에서는 "—"로 표시합니다.
+ */
 export interface ConcertDetail {
   concert: Concert
   bookingAttemptCount: number
   bookingAttemptUserCount: number
+  bookingSuccessCount?: number
+  bookingFailureCount?: number
+  anomalyUserCount?: number
+  sanctionedUserCount?: number
 }
 
 export interface ConcertUser {

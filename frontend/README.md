@@ -14,7 +14,7 @@ npm run dev
 
 ## 인증
 
-상단에 **서비스 ID**와 **관리자 API Key** 하나만 입력합니다. 관리자 키는 백엔드 `BTS_ADMIN_API_KEYS`에 해시로 등록한 키이며, 모든 요청에 `X-API-Key`로 전달됩니다. 키는 저장소(localStorage/sessionStorage)에 저장하지 않고 메모리에만 두므로 새로고침하면 다시 입력합니다. 서비스 키로는 관리자 API를 호출할 수 없습니다(403).
+**로그인** 화면에서 **서비스 ID**와 **관리자 API Key** 하나만 입력합니다. 공연·사용자 메뉴는 로그인 후에만 열립니다. 관리자 키는 백엔드 `BTS_ADMIN_API_KEYS`에 해시로 등록한 키이며, 모든 요청에 `X-API-Key`로 전달됩니다. 키는 저장소(localStorage/sessionStorage)에 저장하지 않고 메모리에만 두므로 새로고침하면 다시 입력합니다. 서비스 키로는 관리자 API를 호출할 수 없습니다(403).
 
 ## 연동 API (모두 관리자 키)
 
@@ -27,9 +27,19 @@ npm run dev
 | `GET /api/v1/admin/users` | 전체 사용자 목록 (ID·등급·상태·Credit 범위 필터, Credit 정렬) |
 | `GET /api/v1/admin/users/{userId}` | 사용자 상세 + 최근 정책 결정 |
 | `GET /api/v1/admin/users/{userId}/assessments` | 위험 평가 이력 |
-| `GET /api/v1/admin/users/{userId}/events` | 예매·취소·체크인·예매 시도 이력 |
+| `GET /api/v1/admin/users/{userId}/events` | 사용자 상세의 예매 목록 (`BOOKING_ATTEMPT`를 `attemptId`로 묶어 성공/실패·최종 단계 계산, 최근 300건까지) |
+| `GET /api/v1/admin/users/{userId}/features` | 사용자 상세의 Feature별 계산값 (AI 입력 6개) |
 
 공연 데이터는 외부 서비스가 `PUT /api/v1/concerts/{concertId}`로 등록해야 보입니다. 기존 DB라면 `backend/db/manual/038-create-concert.sql`을 한 번 적용해야 합니다.
+
+## 화면 구성
+
+상단 메뉴(공연 목록 · 사용자 목록 · 소개 · 로그인)로 이동합니다. 로고는 확정 전이라 `App.tsx`와 `pages/Intro.tsx`의 자리표시를 교체하면 됩니다.
+
+```
+소개 → 로그인 → 공연 목록 → 공연 상세 → 예매자 목록 → 사용자 조회 → (예매 목록 → 공연 상세)
+                사용자 목록 → 사용자 조회
+```
 
 ## 아직 백엔드에 없어 표시하지 못하는 항목
 
@@ -37,7 +47,8 @@ npm run dev
 
 - 공연별 이상 탐지·제재 건수, 평균 Credit
 - 공연별 시계열(10초 단위 추이) 통계 — 그래프 영역은 안내만 표시
-- 사용자별 AI Feature 계산값
+- 점수 산출 근거(Credit 변경 이력)의 관리자용 조회 API
+- "정상·의심·위험" 계정 등급 (현재 화면의 등급은 Credit 등급 `tier` 값)
 - 이상 점수 기준 검색·정렬 (목록 API 정렬은 `createdAt`, `userId`, `creditScore`만 지원)
 
 ## 참고
