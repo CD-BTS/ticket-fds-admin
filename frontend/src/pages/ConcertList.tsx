@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { LoaderCircle, Search } from 'lucide-react'
 import { api } from '../api/client'
 import type { Concert } from '../api/types'
-import { dateTimeUtc, explainError } from '../utils'
+import { dateTimeUtc, explainError, number } from '../utils'
 import type { Session } from '../utils'
 
 interface Props {
@@ -53,8 +53,10 @@ export default function ConcertList({ session, onOpen, onError, onLoaded }: Prop
                   <strong>{c.name}</strong>
                   <span>{dateTimeUtc(c.startsAt)}{c.venue ? ` · ${c.venue}` : ''}</span>
                 </div>
-                {/* 공연별 이상 탐지 건수는 목록 API에 없습니다(명세서: 공연 상세 API 진행 중). */}
-                <div className="concert-anomaly" title="공연별 이상 탐지 건수 API 미제공">이상탐지 <b>—</b>건</div>
+                {/* 그 공연에 예매를 시도한 사용자 중 최신 AI 이상 점수가 0.5 이상인 고유 사용자 수(건수가 아님). */}
+                <div className="concert-anomaly" title="이 공연에 예매를 시도한 사용자 중 AI 이상탐지 사용자 수">
+                  이상탐지 <b className={c.anomalyUserCount == null ? '' : c.anomalyUserCount > 0 ? 'found' : 'zero'}>
+                    {c.anomalyUserCount == null ? '—' : number(c.anomalyUserCount)}</b>명</div>
                 <button className="btn outline" onClick={() => onOpen(c.concertId)}>상세 조회</button>
               </li>
             ))}

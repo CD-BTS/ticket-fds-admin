@@ -85,6 +85,7 @@ class RiskAssessmentCursorMySqlTests {
 	@Autowired private FeatureAggregationService featureAggregationService;
 	@Autowired private UserAccountRepository userAccountRepository;
 	@Autowired private RiskAssessmentRepository riskAssessmentRepository;
+	@Autowired private com.bts.fairticket.risk.repository.RiskAssessmentAttemptRepository riskAssessmentAttemptRepository;
 	@Autowired private ApplicationEventPublisher eventPublisher;
 	@Autowired private PlatformTransactionManager transactionManager;
 	@MockitoSpyBean private BehaviorEventRepository behaviorEvents;
@@ -361,7 +362,7 @@ class RiskAssessmentCursorMySqlTests {
 		});
 
 		new RiskAssessmentService(ownOnly, featureAggregationService, ai, userAccountRepository,
-				riskAssessmentRepository, eventPublisher, transactionManager,
+				riskAssessmentRepository, riskAssessmentAttemptRepository, eventPublisher, transactionManager,
 				Clock.fixed(Instant.parse(now), ZoneOffset.UTC), 100, 500).runOnce();
 	}
 

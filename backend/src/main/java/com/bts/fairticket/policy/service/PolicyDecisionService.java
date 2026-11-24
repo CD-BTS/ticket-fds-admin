@@ -74,14 +74,24 @@ public class PolicyDecisionService {
                 creditScore,
                 anomalyScore,
                 decisionResult.action(),
-                decisionResult.reason()
+                decisionResult.reason(),
+                user.getServiceId(),
+                request.concertId() == null || request.concertId().isBlank() ? null : request.concertId().trim()
         );
         policyDecision = policyDecisionRepository.save(policyDecision);
 
         return PolicyDecisionResponse.from(policyDecision);
     }
 
-    private DecisionResult evaluatePolicy(int creditScore, Double anomalyScore) {
+    /**
+     * 지금 정책을 요청하면 받을 조치 (#67, 조회 전용). 판정 기준은 decidePolicy와 같은 코드다.
+     * policy_decision 행을 만들지 않으므로 관리자 통계에서 "예상 정책"을 셀 때 쓴다.
+     */
+    public static String expectedAction(int creditScore, Double anomalyScore) {
+        return evaluatePolicy(creditScore, anomalyScore).action();
+    }
+
+    private static DecisionResult evaluatePolicy(int creditScore, Double anomalyScore) {
         // AI 분석 이력이 없는 경우: Credit 점수 기반 기본 판정
         if (anomalyScore == null) {
             if (creditScore >= 40) {

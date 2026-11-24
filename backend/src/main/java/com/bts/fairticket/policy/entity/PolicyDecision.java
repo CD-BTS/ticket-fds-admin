@@ -27,7 +27,8 @@ import com.bts.fairticket.risk.entity.RiskAssessment;
 				@Index(name = "policy_decision_index_14", columnList = "user_id,action,decided_at"),
 				@Index(name = "policy_decision_index_15", columnList = "user_id,context,decided_at"),
 				@Index(name = "policy_decision_index_16", columnList = "assessment_id"),
-				@Index(name = "policy_decision_index_17", columnList = "decided_at,action")
+				@Index(name = "policy_decision_index_17", columnList = "decided_at,action"),
+				@Index(name = "policy_decision_index_18", columnList = "service_id,concert_id,decided_at")
 		})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -65,6 +66,20 @@ public class PolicyDecision {
 	@ColumnDefault("(now())")
 	@Column(name = "decided_at", nullable = false, columnDefinition = "datetime", insertable = false, updatable = false)
 	private LocalDateTime decidedAt;
+
+	// 정책을 요청한 외부 서비스와 공연 (#67). 공연은 요청에 없으면 null이고, #67 이전 행은 둘 다 null이다.
+	@Column(name = "service_id", length = 50)
+	private String serviceId;
+
+	@Column(name = "concert_id", length = 50)
+	private String concertId;
+
+	public PolicyDecision(UserAccount user, RiskAssessment assessment, String context, Integer creditScoreAtDecision,
+			Double anomalyScoreAtDecision, String action, String reason, String serviceId, String concertId) {
+		this(user, assessment, context, creditScoreAtDecision, anomalyScoreAtDecision, action, reason);
+		this.serviceId = serviceId;
+		this.concertId = concertId;
+	}
 
 	public PolicyDecision(UserAccount user, RiskAssessment assessment, String context, Integer creditScoreAtDecision,
 			Double anomalyScoreAtDecision, String action, String reason) {

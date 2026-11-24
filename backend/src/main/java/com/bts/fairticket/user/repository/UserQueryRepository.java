@@ -26,10 +26,14 @@ public class UserQueryRepository {
 
 	public PageResponse<UserResponse> find(UserQuery filter, Set<String> services, String concertId) {
 		var page = QueryPage.parse(filter.page(), filter.size(), filter.sort(), Map.of(
-				"createdAt", "u.createdAt", "userId", "u.userId", "creditScore", "c.creditScore"),
+				"createdAt", "u.createdAt", "userId", "u.userId", "creditScore", "c.creditScore",
+				// 미평가 사용자(점수 없음)는 오름차순 · 내림차순 모두 뒤에 둔다. 0점으로 취급하지 않는다 (#67).
+				"anomalyScore", "case when a.anomalyScore is null then 1 else 0 end, a.anomalyScore"),
 				"createdAt", "u.userId");
 		if (filter.minCreditScore() != null && filter.maxCreditScore() != null
 				&& filter.minCreditScore() > filter.maxCreditScore()) QueryPage.invalid();
+		if (filter.minAnomalyScore() != null && filter.maxAnomalyScore() != null
+				&& filter.minAnomalyScore() > filter.maxAnomalyScore()) QueryPage.invalid();
 		if (filter.createdFrom() != null && filter.createdTo() != null
 				&& !filter.createdFrom().isBefore(filter.createdTo())) QueryPage.invalid();
 		for (var date : new java.time.LocalDateTime[]{filter.createdFrom(), filter.createdTo()}) {
@@ -49,6 +53,18 @@ public class UserQueryRepository {
 		add(where, parameters, "maxCreditScore", "c.creditScore <=", filter.maxCreditScore());
 		add(where, parameters, "createdFrom", "u.createdAt >=", filter.createdFrom());
 		add(where, parameters, "createdTo", "u.createdAt <", filter.createdTo());
+		// 이상 점수 조건은 최신 성공 평가(a)에 건다. 점수가 없는 사용자는 범위 조건에서 빠진다 (#67).
+		add(where, parameters, "minAnomalyScore", "a.anomalyScore >=", filter.minAnomalyScore());
+		add(where, parameters, "maxAnomalyScore", "a.anomalyScore <=", filter.maxAnomalyScore());
+		if (filter.assessed() != null) {
+			where.append(filter.assessed() ? " and a.assessmentId is not null" : " and a.assessmentId is null");
+		}
+		if (filter.keyword() != null) {
+			// 내부 ID 또는 외부 사용자 ID 부분 일치. LIKE 특수문자는 그대로의 문자로 찾는다.
+			where.append(" and (u.userId like :keyword escape '!' or u.externalUserId like :keyword escape '!')");
+			parameters.put("keyword", "%" + filter.keyword().trim()
+					.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%");
+		}
 		if (concertId != null) {
 			where.append(" ").append("""
 			    and exists (select e.eventId from BehaviorEvent e where e.user.userId = u.userId
@@ -61,7 +77,12 @@ public class UserQueryRepository {
 			    """);
 			parameters.put("concertId", concertId);
 		}
-		String from = " from UserAccount u left join UserCredit c on c.userId = u.userId" + where;
+		// a는 사용자의 최신 성공 평가 1건이다(없으면 null). Credit 산출 · 정책 판정과 같은 순서로 고른다.
+		String from = " from UserAccount u left join UserCredit c on c.userId = u.userId"
+				+ " left join RiskAssessment a on a.user.userId = u.userId" + where
+				+ " and (a.assessmentId is null or not exists (select newer.assessmentId from RiskAssessment newer"
+				+ " where newer.user.userId = u.userId and (newer.assessedAt > a.assessedAt"
+				+ " or (newer.assessedAt = a.assessedAt and newer.assessmentId > a.assessmentId))))";
 		var count = bind(em.createQuery("select count(u)" + from, Long.class), parameters);
 		if (services != null) ServiceScopeQuery.bind(count, services);
 		long total = count.getSingleResult();

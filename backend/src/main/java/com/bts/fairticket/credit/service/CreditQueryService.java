@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -31,8 +32,9 @@ public class CreditQueryService {
     private final UserCreditRepository userCreditRepository;
     private final CreditHistoryRepository creditHistoryRepository;
 
-    public CreditResponse getCredit(String userId) {
-        validateUserExists(userId);
+    /** @param authenticatedService 인증된 외부 서비스. 다른 서비스의 사용자는 없는 사용자와 같이 404다 (#67). */
+    public CreditResponse getCredit(String userId, String authenticatedService) {
+        validateUserInService(userId, authenticatedService);
 
         UserCredit userCredit = userCreditRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(ResponseCode.CREDIT_NOT_FOUND));
@@ -40,9 +42,17 @@ public class CreditQueryService {
         return CreditResponse.from(userCredit);
     }
 
-    public CreditHistoryResponse getCreditHistory(String userId, int page, int size, String startDate, String endDate) {
-        validateUserExists(userId);
+    public CreditHistoryResponse getCreditHistory(String userId, String authenticatedService, int page, int size,
+            String startDate, String endDate) {
+        validateUserInService(userId, authenticatedService);
+        return CreditHistoryResponse.of(userId, findHistory(userId, page, size, startDate, endDate));
+    }
 
+    /**
+     * 이력 조회 본체. 접근 권한은 호출자가 먼저 확인한다(서비스 API는 소속 서비스, 관리자 API는 AdminScope).
+     * startDate, endDate는 UTC 날짜(yyyy-MM-dd)이며 둘 다 그날을 포함한다.
+     */
+    public Page<CreditHistory> findHistory(String userId, int page, int size, String startDate, String endDate) {
         // 쿼리 파라미터 유효성 검증 (size 최대 100, page >= 0)
         if (page < 0 || size < 1 || size > 100) {
             throw new ApiException(ResponseCode.INVALID_QUERY_PARAMETER);
@@ -68,18 +78,15 @@ public class CreditQueryService {
         }
 
         Pageable pageable = PageRequest.of(page, size);
-        Page<CreditHistory> historyPage = creditHistoryRepository.findByUserIdAndDateRange(
-                userId, startDateTime, endDateTime, pageable);
-
-        return CreditHistoryResponse.of(userId, historyPage);
+        return creditHistoryRepository.findByUserIdAndDateRange(userId, startDateTime, endDateTime, pageable);
     }
 
-    private void validateUserExists(String userId) {
+    private void validateUserInService(String userId, String authenticatedService) {
         if (userId == null || userId.isBlank()) {
             throw new ApiException(ResponseCode.INVALID_REQUEST);
         }
-        if (!userAccountRepository.existsById(userId)) {
-            throw new ApiException(ResponseCode.USER_NOT_FOUND);
-        }
+        userAccountRepository.findById(userId)
+                .filter(user -> user.getServiceId().equals(authenticatedService))
+                .orElseThrow(() -> new ApiException(ResponseCode.USER_NOT_FOUND));
     }
 }

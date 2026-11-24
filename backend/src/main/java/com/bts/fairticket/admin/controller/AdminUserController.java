@@ -56,6 +56,27 @@ public class AdminUserController {
 		return ApiResponse.success(users.assessments(userId, query, scope));
 	}
 
+	// 평가 시도 이력(#67): 성공한 평가와 데이터 부족 · INVALID로 끝난 시도를 함께 본다.
+	@GetMapping("/{userId}/assessment-attempts")
+	public ApiResponse<PageResponse<com.bts.fairticket.admin.dto.AssessmentAttemptResponse>> assessmentAttempts(
+			@PathVariable @NotBlank @Size(max = 50) String userId,
+			@Valid @ModelAttribute AssessmentQuery query,
+			@RequestAttribute(ApiKeyFilter.ADMIN_ATTRIBUTE) AdminScope scope) {
+		return ApiResponse.success(users.assessmentAttempts(userId, query, scope));
+	}
+
+	// Credit 변경 이력과 산출 근거(#67). startDate · endDate는 UTC 날짜(yyyy-MM-dd)다.
+	@GetMapping("/{userId}/credit-history")
+	public ApiResponse<PageResponse<com.bts.fairticket.admin.dto.AdminCreditHistoryResponse>> creditHistory(
+			@PathVariable @NotBlank @Size(max = 50) String userId,
+			@org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
+			@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
+			@org.springframework.web.bind.annotation.RequestParam(required = false) String startDate,
+			@org.springframework.web.bind.annotation.RequestParam(required = false) String endDate,
+			@RequestAttribute(ApiKeyFilter.ADMIN_ATTRIBUTE) AdminScope scope) {
+		return ApiResponse.success(users.creditHistory(userId, page, size, startDate, endDate, scope));
+	}
+
 	@GetMapping("/{userId}/features")
 	public ApiResponse<UserFeaturesResponse> features(@PathVariable @NotBlank @Size(max = 50) String userId,
 			@RequestAttribute(ApiKeyFilter.ADMIN_ATTRIBUTE) AdminScope scope) {

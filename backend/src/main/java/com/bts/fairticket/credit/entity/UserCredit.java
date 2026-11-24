@@ -55,8 +55,16 @@ public class UserCredit {
 	@Column(name = "updated_at", nullable = false, columnDefinition = "datetime", insertable = false, updatable = true)
 	private LocalDateTime updatedAt;
 
+	// 현재 점수를 만든 최신 산출 근거(credit_calculation). #67 이전 행은 null이다.
+	@Column(name = "latest_calculation_id")
+	private Long latestCalculationId;
+
 	public UserCredit(UserAccount user) {
 		this.user = user;
+	}
+
+	public void linkLatestCalculation(Long calculationId) {
+		this.latestCalculationId = calculationId;
 	}
 
 	public void updateCreditScore(int newScore, String tier) {

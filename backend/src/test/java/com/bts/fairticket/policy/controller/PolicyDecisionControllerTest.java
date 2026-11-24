@@ -44,7 +44,7 @@ class PolicyDecisionControllerTest {
     void createPolicyDecision_Success() throws Exception {
         PolicyDecisionResponse response = new PolicyDecisionResponse(
                 701L, "bts_user_001", "QUEUE_JOIN", 35, 0.82, "DELAY",
-                "반복적인 예매 및 취소 패턴 감지", "2026-11-04T14:32:00+09:00");
+                "반복적인 예매 및 취소 패턴 감지", "2026-11-04T05:32:00Z", null);
 
         given(policyDecisionService.decidePolicy(anyString(), any(), any(PolicyDecisionRequest.class)))
                 .willReturn(response);

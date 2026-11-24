@@ -51,6 +51,11 @@ class QueryControllerTests {
 	@MockitoBean com.bts.fairticket.risk.service.FeatureAggregationService featureService;
 	@MockitoBean com.bts.fairticket.credit.service.BookingHistoryQueryService bookings;
 	@MockitoBean java.time.Clock clock;
+	// #67: 관리자 조회가 읽는 저장소(평가 시도 이력, Credit 산출 근거)
+	@MockitoBean com.bts.fairticket.risk.repository.RiskAssessmentAttemptRepository attempts;
+	@MockitoBean com.bts.fairticket.credit.service.CreditQueryService credits;
+	@MockitoBean com.bts.fairticket.credit.repository.UserCreditRepository userCredits;
+	@MockitoBean com.bts.fairticket.credit.repository.CreditCalculationRepository calculations;
 
 	@Test
 	void authenticationCoversAllNewRoutesAndNormalizesPaths() throws Exception {

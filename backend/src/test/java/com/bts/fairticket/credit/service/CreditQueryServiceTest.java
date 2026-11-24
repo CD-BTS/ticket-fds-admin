@@ -36,10 +36,11 @@ class CreditQueryServiceTest {
     @Test
     @DisplayName("사용자는 존재하지만 Credit 정보가 누락된 경우 CREDIT_NOT_FOUND 예외 발생")
     void getCredit_CreditNotFound() {
-        given(userAccountRepository.existsById("bts_user_001")).willReturn(true);
+        given(userAccountRepository.findById("bts_user_001")).willReturn(Optional.of(
+                new com.bts.fairticket.user.entity.UserAccount("bts_user_001", "service-1", "ext-1")));
         given(userCreditRepository.findById("bts_user_001")).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> creditQueryService.getCredit("bts_user_001"))
+        assertThatThrownBy(() -> creditQueryService.getCredit("bts_user_001", "service-1"))
                 .isInstanceOf(ApiException.class)
                 .extracting("responseCode")
                 .isEqualTo(ResponseCode.CREDIT_NOT_FOUND);
@@ -48,10 +49,11 @@ class CreditQueryServiceTest {
     @Test
     @DisplayName("조회 시작일이 종료일보다 늦은 경우 INVALID_QUERY_PARAMETER 예외 발생")
     void getCreditHistory_InvalidDateRange() {
-        given(userAccountRepository.existsById("bts_user_001")).willReturn(true);
+        given(userAccountRepository.findById("bts_user_001")).willReturn(Optional.of(
+                new com.bts.fairticket.user.entity.UserAccount("bts_user_001", "service-1", "ext-1")));
 
         assertThatThrownBy(() -> creditQueryService.getCreditHistory(
-                "bts_user_001", 0, 20, "2026-10-15", "2026-10-10"))
+                "bts_user_001", "service-1", 0, 20, "2026-10-15", "2026-10-10"))
                 .isInstanceOf(ApiException.class)
                 .extracting("responseCode")
                 .isEqualTo(ResponseCode.INVALID_QUERY_PARAMETER);
@@ -60,12 +62,25 @@ class CreditQueryServiceTest {
     @Test
     @DisplayName("size가 100을 초과하면 INVALID_QUERY_PARAMETER 예외 발생")
     void getCreditHistory_SizeExceeded() {
-        given(userAccountRepository.existsById("bts_user_001")).willReturn(true);
+        given(userAccountRepository.findById("bts_user_001")).willReturn(Optional.of(
+                new com.bts.fairticket.user.entity.UserAccount("bts_user_001", "service-1", "ext-1")));
 
         assertThatThrownBy(() -> creditQueryService.getCreditHistory(
-                "bts_user_001", 0, 101, null, null))
+                "bts_user_001", "service-1", 0, 101, null, null))
                 .isInstanceOf(ApiException.class)
                 .extracting("responseCode")
                 .isEqualTo(ResponseCode.INVALID_QUERY_PARAMETER);
+    }
+    @Test
+    @DisplayName("[#67] 다른 서비스의 사용자는 Credit과 이력 모두 USER_NOT_FOUND로 숨긴다")
+    void getCredit_OtherServiceUserIsHidden() {
+        given(userAccountRepository.findById("bts_user_001")).willReturn(Optional.of(
+                new com.bts.fairticket.user.entity.UserAccount("bts_user_001", "service-1", "ext-1")));
+
+        assertThatThrownBy(() -> creditQueryService.getCredit("bts_user_001", "service-2"))
+                .isInstanceOf(ApiException.class).extracting("responseCode").isEqualTo(ResponseCode.USER_NOT_FOUND);
+        assertThatThrownBy(() -> creditQueryService.getCreditHistory("bts_user_001", "service-2", 0, 20, null, null))
+                .isInstanceOf(ApiException.class).extracting("responseCode").isEqualTo(ResponseCode.USER_NOT_FOUND);
+        org.mockito.Mockito.verifyNoInteractions(userCreditRepository, creditHistoryRepository);
     }
 }

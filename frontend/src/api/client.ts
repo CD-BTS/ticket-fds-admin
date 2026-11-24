@@ -4,8 +4,11 @@ import type {
   ApiEnvelope,
   Assessment,
   Concert,
+  AssessmentAttempt,
   ConcertDetail,
+  ConcertTrend,
   ConcertUser,
+  CreditHistoryItem,
   DashboardSummary,
   PageResponse,
   UserEvent,
@@ -61,6 +64,10 @@ export const api = {
   concert: (key: string, serviceId: string, concertId: string) =>
     request<ConcertDetail>(`/api/v1/admin/concerts/${id(concertId)}`, key, { serviceId }),
 
+  /** from · to는 UTC 오프셋이 붙은 ISO 문자열, intervalSeconds는 60 · 300 · 600 · 3600. 버킷은 최대 500개입니다. */
+  concertTrends: (key: string, serviceId: string, concertId: string, query: Params = {}) =>
+    request<ConcertTrend>(`/api/v1/admin/concerts/${id(concertId)}/trends`, key, { serviceId, ...query }),
+
   concertUsers: (key: string, serviceId: string, concertId: string, query: Params = {}) =>
     request<PageResponse<ConcertUser>>(`/api/v1/admin/concerts/${id(concertId)}/users`, key, { serviceId, ...query }),
 
@@ -84,6 +91,21 @@ export const api = {
       page: 0,
       size: 10,
       sort: 'assessedAt,desc',
+      ...query,
+    }),
+  /** 성공한 평가뿐 아니라 데이터 부족 · INVALID로 끝난 시도도 최신순으로 돌려줍니다. */
+  userAssessmentAttempts: (key: string, userId: string, query: Params = {}) =>
+    request<PageResponse<AssessmentAttempt>>(`/api/v1/admin/users/${id(userId)}/assessment-attempts`, key, {
+      page: 0,
+      size: 10,
+      ...query,
+    }),
+
+  /** Credit 변경 이력과 산출 근거(최신순). */
+  userCreditHistory: (key: string, userId: string, query: Params = {}) =>
+    request<PageResponse<CreditHistoryItem>>(`/api/v1/admin/users/${id(userId)}/credit-history`, key, {
+      page: 0,
+      size: 10,
       ...query,
     }),
 }

@@ -27,7 +27,7 @@ public record CreditHistoryResponse(
             String formattedCreatedAt = null;
             if (entity.getCreatedAt() != null) {
                 formattedCreatedAt = entity.getCreatedAt()
-                        .atZone(ZoneId.of("Asia/Seoul"))
+                        .atOffset(java.time.ZoneOffset.UTC) // DB 시각은 UTC다. +09:00으로 잘못 붙이던 표기를 Z로 바로잡았다 (#67)
                         .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
             }
             return new HistoryItem(

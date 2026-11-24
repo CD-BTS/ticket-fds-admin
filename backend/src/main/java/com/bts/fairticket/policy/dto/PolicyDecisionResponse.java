@@ -13,13 +13,15 @@ public record PolicyDecisionResponse(
     Double anomalyScore,
     String action,
     String reason,
-    String decidedAt
+    String decidedAt,
+    String concertId
 ) {
     public static PolicyDecisionResponse from(PolicyDecision decision) {
         String formattedDecidedAt = null;
         if (decision.getDecidedAt() != null) {
+            // DB의 시각은 UTC다. 변환 없이 +09:00을 붙이던 표기를 UTC(Z)로 바로잡았다 (#67).
             formattedDecidedAt = decision.getDecidedAt()
-                    .atZone(ZoneId.of("Asia/Seoul"))
+                    .atOffset(java.time.ZoneOffset.UTC)
                     .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
         }
 
@@ -31,7 +33,8 @@ public record PolicyDecisionResponse(
             decision.getAnomalyScoreAtDecision(),
             decision.getAction(),
             decision.getReason(),
-            formattedDecidedAt
+            formattedDecidedAt,
+            decision.getConcertId()
         );
     }
 }

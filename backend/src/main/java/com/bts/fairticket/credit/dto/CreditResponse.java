@@ -16,7 +16,7 @@ public record CreditResponse(
         if (credit.getUpdatedAt() != null) {
             // ISO 8601 UTC/KST 오프셋 포맷팅
             formattedUpdatedAt = credit.getUpdatedAt()
-                    .atZone(ZoneId.of("Asia/Seoul"))
+                    .atOffset(java.time.ZoneOffset.UTC) // DB 시각은 UTC다. +09:00으로 잘못 붙이던 표기를 Z로 바로잡았다 (#67)
                     .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
         }
         return new CreditResponse(
