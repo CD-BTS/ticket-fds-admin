@@ -54,7 +54,7 @@ public class UserCard {
 
     /** 같은 카드를 다시 썼을 때 더 최근 시각으로만 갱신한다. 늦게 도착한 과거 이벤트로는 되돌아가지 않는다. */
     public void markUsed(LocalDateTime usedAtUtc) {
-        if (usedAtUtc != null && usedAtUtc.isAfter(this.lastUsedAt)) {
+        if (usedAtUtc != null && (this.cardId == null || usedAtUtc.isAfter(this.lastUsedAt))) {
             this.lastUsedAt = usedAtUtc;
         }
     }
