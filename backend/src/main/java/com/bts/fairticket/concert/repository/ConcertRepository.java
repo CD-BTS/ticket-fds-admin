@@ -39,9 +39,15 @@ public class ConcertRepository {
     public PageResponse<ConcertResponse> list(String serviceId, ConcertQuery filter) {
         var page = QueryPage.parse(filter.page(), filter.size(), filter.sort(), Map.of(
                 "startsAt", "starts_at", "concertId", "concert_id", "name", "name"), "startsAt", "concert_id");
-        var params = Map.<String, Object>of("serviceId", serviceId, "limit", page.size(), "offset", page.offset());
-        long total = jdbc.queryForObject("select count(*) from concert where " + SERVICE, params, Long.class);
-        var content = jdbc.query("select * from concert where " + SERVICE + " order by " + page.orderBy()
+        var params = new HashMap<String, Object>(Map.of("serviceId", serviceId, "limit", page.size(), "offset", page.offset()));
+        String where = SERVICE;
+        if (filter.name() != null && !filter.name().isBlank()) {
+            // 이름 부분 검색(#67). DB에서 걸러 페이지 수와 전체 건수가 검색 결과 기준이 된다.
+            where += " and name like :name escape '!'";
+            params.put("name", "%" + filter.name().trim().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%");
+        }
+        long total = jdbc.queryForObject("select count(*) from concert where " + where, params, Long.class);
+        var content = jdbc.query("select * from concert where " + where + " order by " + page.orderBy()
                 + " limit :limit offset :offset", params, this::map);
         return PageResponse.of(content, page.page(), page.size(), total);
     }

@@ -13,4 +13,9 @@ public record UserQuery(Integer page, Integer size, String sort,
 		@Size(min = 1, max = 20) @Pattern(regexp = ".*\\S.*") String tier,
 		@Min(0) @Max(100) Integer minCreditScore, @Min(0) @Max(100) Integer maxCreditScore,
 		@DateTimeFormat(iso = DATE_TIME) LocalDateTime createdFrom,
-		@DateTimeFormat(iso = DATE_TIME) LocalDateTime createdTo) { }
+		@DateTimeFormat(iso = DATE_TIME) LocalDateTime createdTo,
+		// #67: 최신 AI 이상 점수 범위(미평가 사용자는 범위 조건에 걸리지 않고 빠진다), 평가 여부, ID 부분 검색
+		@jakarta.validation.constraints.DecimalMin("0.0") @jakarta.validation.constraints.DecimalMax("1.0") Double minAnomalyScore,
+		@jakarta.validation.constraints.DecimalMin("0.0") @jakarta.validation.constraints.DecimalMax("1.0") Double maxAnomalyScore,
+		Boolean assessed,
+		@Size(min = 1, max = 100) @Pattern(regexp = ".*\\S.*") String keyword) { }

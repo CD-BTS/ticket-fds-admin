@@ -130,7 +130,8 @@ class QueryApiMySqlTests {
 				.andExpect(jsonPath("data.content[0].anomalyScore").value(0.4))
 				.andExpect(jsonPath("data.content[0].lastAssessedAt").exists())
 				.andExpect(jsonPath("data.content[1].anomalyScore").isEmpty());
-		assertEquals(3, stats.getPrepareStatementCount());
+		// 개수 + 목록 + 최신 평가 + 최신 평가 시도(#67). 페이지당 한 번씩이며 사용자 수에 비례하지 않는다.
+		assertEquals(4, stats.getPrepareStatementCount());
 		mvc.perform(get("/api/v1/users").header("X-API-Key", SERVICE_KEY))
 				.andExpect(status().isOk()).andExpect(jsonPath("data.content[0].anomalyScore").doesNotExist());
 	}
@@ -139,7 +140,7 @@ class QueryApiMySqlTests {
 	void userPagesAreScopedStableAndUseTwoQueriesWithoutNPlusOne() throws Exception {
 		var stats = emf.unwrap(SessionFactory.class).getStatistics();
 		stats.clear();
-		var page = users.find(new UserQuery(0, 1, "userId,asc", null, null, null, null, null, null, null, null, null), Set.of(A));
+		var page = users.find(new UserQuery(0, 1, "userId,asc", null, null, null, null, null, null, null, null, null, null, null, null, null), Set.of(A));
 		assertEquals(2, page.totalElements());
 		assertEquals(2, page.totalPages());
 		assertTrue(page.hasNext());
