@@ -53,6 +53,7 @@ class RiskAssessmentServiceTest {
 	@Mock AiInferenceClient ai;
 	@Mock UserAccountRepository users;
 	@Mock RiskAssessmentRepository assessments;
+	@Mock com.bts.fairticket.risk.repository.RiskAssessmentAttemptRepository attempts;
 	@Mock ApplicationEventPublisher events;
 	@Mock PlatformTransactionManager transactions;
 
@@ -60,7 +61,7 @@ class RiskAssessmentServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new RiskAssessmentService(cursors, features, ai, users, assessments, events, transactions,
+		service = new RiskAssessmentService(cursors, features, ai, users, assessments, attempts, events, transactions,
 				Clock.fixed(NOW, ZoneOffset.UTC), 2, 500);
 		when(cursors.findById(any())).thenReturn(Optional.empty());
 		when(users.findByIdForUpdate(any())).thenAnswer(inv -> Optional.of(new UserAccount(inv.getArgument(0), "svc", "ext")));

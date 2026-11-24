@@ -22,8 +22,10 @@ import com.bts.fairticket.risk.client.AiInferenceClient.AiPredictRequest;
 import com.bts.fairticket.risk.client.AiInferenceClient.AiPrediction;
 import com.bts.fairticket.risk.dto.UserCalculatedFeatures;
 import com.bts.fairticket.risk.entity.RiskAssessment;
+import com.bts.fairticket.risk.entity.RiskAssessmentAttempt;
 import com.bts.fairticket.risk.entity.RiskAssessmentCursor;
 import com.bts.fairticket.risk.event.RiskAssessedEvent;
+import com.bts.fairticket.risk.repository.RiskAssessmentAttemptRepository;
 import com.bts.fairticket.risk.repository.RiskAssessmentCursorRepository;
 import com.bts.fairticket.risk.repository.RiskAssessmentRepository;
 import com.bts.fairticket.user.repository.UserAccountRepository;
@@ -50,6 +52,7 @@ public class RiskAssessmentService {
 
 	static final String OK = "OK";
 	static final String INSUFFICIENT_DATA = "INSUFFICIENT_DATA";
+	static final String INVALID = "INVALID";
 	/** 후보 선정 이후 진행 위치가 바뀌어 버린 결과. DB에는 기록하지 않는다. */
 	static final String DISCARDED = "DISCARDED";
 	private static final DateTimeFormatter CURSOR_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -59,6 +62,7 @@ public class RiskAssessmentService {
 	private final AiInferenceClient ai;
 	private final UserAccountRepository users;
 	private final RiskAssessmentRepository assessments;
+	private final RiskAssessmentAttemptRepository attempts;
 	private final ApplicationEventPublisher events;
 	private final TransactionTemplate perUser;
 	private final Clock clock;
@@ -67,6 +71,7 @@ public class RiskAssessmentService {
 
 	public RiskAssessmentService(RiskAssessmentCursorRepository cursors, FeatureAggregationService features,
 			AiInferenceClient ai, UserAccountRepository users, RiskAssessmentRepository assessments,
+			RiskAssessmentAttemptRepository attempts,
 			ApplicationEventPublisher events, PlatformTransactionManager transactions, Clock clock,
 			@Value("${bts.ai.batch-size:100}") int batchSize,
 			@Value("${bts.ai.max-users-per-run:500}") int maxUsersPerRun) {
@@ -75,6 +80,7 @@ public class RiskAssessmentService {
 		this.ai = ai;
 		this.users = users;
 		this.assessments = assessments;
+		this.attempts = attempts;
 		this.events = events;
 		this.perUser = new TransactionTemplate(transactions);
 		this.perUser.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -149,15 +155,30 @@ public class RiskAssessmentService {
 	}
 
 	private String apply(Prepared p, AiPrediction r, LocalDateTime checkedAt) {
-		String status = r == null || r.status() == null ? "INVALID" : r.status();
+		String status = r == null || r.status() == null ? INVALID : r.status();
+		// 평가 불가 사유 (#67). 평가 시도 이력에 남긴다. OK면 null이다.
+		String reason = null;
+		if (r == null || r.status() == null) {
+			reason = "AI 응답에 status가 없습니다.";
+		} else if (INVALID.equals(status)) {
+			reason = r.errors() == null || r.errors().isEmpty() ? "AI가 Feature를 거부했습니다." : String.join("; ", r.errors());
+		} else if (INSUFFICIENT_DATA.equals(status)) {
+			reason = "AI가 데이터 부족으로 판정하지 않았습니다 (bookingCount=" + p.features().getBookingCount() + ").";
+		} else if (!OK.equals(status)) {
+			reason = "알 수 없는 status: " + status;
+			status = INVALID;
+		}
 		if (r != null && r.userId() != null && !p.userId().equals(r.userId())) {
-			status = "INVALID"; // 응답 순서가 요청과 다르면 저장하지 않는다.
+			status = INVALID; // 응답 순서가 요청과 다르면 저장하지 않는다.
+			reason = "응답의 userId가 요청과 다릅니다.";
 		}
 		if (OK.equals(status) && (r.anomalyScore() == null || r.modelVersion() == null || r.modelVersion().isBlank()
 				|| r.modelVersion().length() > 30 || r.anomalyScore() < 0 || r.anomalyScore() > 1)) {
-			status = "INVALID";
+			status = INVALID;
+			reason = "응답의 anomalyScore 또는 modelVersion이 올바르지 않습니다.";
 		}
 		final String finalStatus = status;
+		final String finalReason = reason;
 		Boolean applied = perUser.execute(tx -> {
 			// 같은 사용자의 결과 반영을 직렬화한다. 이벤트 등록 · Credit 평가와 같은 user_account 행 잠금이다.
 			var user = users.findByIdForUpdate(p.userId()).orElseThrow();
@@ -168,12 +189,21 @@ public class RiskAssessmentService {
 				return false;
 			}
 			if (OK.equals(finalStatus)) {
-				RiskAssessment saved = assessments.save(new RiskAssessment(user, r.anomalyScore(), r.modelVersion()));
+				// AI에 보낸 Feature를 평가와 함께 남긴다. 저장 시점에 다시 계산하지 않는다 (#67).
+				RiskAssessment saved = assessments.save(
+						new RiskAssessment(user, r.anomalyScore(), r.modelVersion(), p.features()));
+				attempts.save(RiskAssessmentAttempt.succeeded(p.userId(), saved.getAssessmentId(), r.modelVersion(), checkedAt));
 				events.publishEvent(new RiskAssessedEvent(p.userId(), saved.getAssessmentId(), r.anomalyScore(),
 						p.features().getBookingIntervalVariance(), p.recentIpAttemptCount()));
-			} else if (!INSUFFICIENT_DATA.equals(finalStatus)) {
-				log.warn("AI rejected features (user={}, status={}, errors={})", p.userId(), finalStatus,
-						r == null ? null : r.errors());
+			} else {
+				if (!INSUFFICIENT_DATA.equals(finalStatus)) {
+					log.warn("AI rejected features (user={}, status={}, errors={})", p.userId(), finalStatus,
+							r == null ? null : r.errors());
+				}
+				// 점수 없이 끝난 시도도 이력으로 남긴다. risk_assessment에는 쓰지 않으므로
+				// 기존 성공 평가의 점수와 Credit은 그대로다 (#67).
+				attempts.save(RiskAssessmentAttempt.notScored(p.userId(), finalStatus, finalReason,
+						r == null ? null : r.modelVersion(), p.features(), checkedAt));
 			}
 			if (cursor == null) cursor = new RiskAssessmentCursor(p.userId());
 			cursor.advance(p.advanceToEventId(), finalStatus, checkedAt);
