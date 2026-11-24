@@ -1,0 +1,24 @@
+credit  history=(0, 0, 0) score=0.0 rule=0.0 -> credit 50, penalty 0.0  OK
+credit  history=(0, 0, 0) score=0.0 rule=5.0 -> credit 45, penalty 5.0  OK
+credit  history=(0, 0, 0) score=0.5 rule=0.0 -> credit 30, penalty 20.0  OK
+credit  history=(0, 0, 0) score=0.75 rule=15.0 -> credit 5, penalty 45.0  OK
+credit  history=(10, 0, 0) score=0.0 rule=5.0 -> credit 70, penalty 5.0  OK
+credit  history=(0, 5, 2) score=1.0 rule=30.0 -> credit 0, penalty 70.0  OK
+round   Math.round(39.5)=40, Math.round(19.5)=20  OK
+policy  credit=19 score=0.85 cut=0.40 -> RESTRICT  OK
+policy  credit=19 score=0.84 cut=0.40 -> DELAY  OK
+policy  credit=20 score=0.85 cut=0.40 -> DELAY  OK
+policy  credit=50 score=0.7 cut=0.40 -> DELAY  OK
+policy  credit=19 score=0.0 cut=0.40 -> DELAY  OK
+policy  credit=39 score=0.0 cut=0.40 -> REQUIRE_CAPTCHA  OK
+policy  credit=50 score=0.4 cut=0.40 -> REQUIRE_CAPTCHA  OK
+policy  credit=50 score=0.39 cut=0.40 -> ALLOW  OK
+policy  credit=40 score=0.0 cut=0.40 -> ALLOW  OK
+policy  credit=50 score=nan cut=0.40 -> ALLOW  OK
+policy  credit=39 score=nan cut=0.40 -> REQUIRE_CAPTCHA  OK
+policy  credit=19 score=nan cut=0.40 -> DELAY  OK
+new AI penalty  score=0.0 -> 0.0  OK
+new AI penalty  score=0.5 -> 0.0  OK
+new AI penalty  score=0.75 -> 20.0  OK
+new AI penalty  score=1.0 -> 40.0  OK
+new AI penalty  score=0.499999 -> 0.0  OK

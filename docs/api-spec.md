@@ -807,3 +807,43 @@ Path Variable concertId는 공백 없는 1~50자이며 Body는 없습니다.
 - `user_credit`: `credit_score` 기본값 70 → 50, `dynamic_penalty` 추가.
 - 기존 행은 삭제·수정하지 않습니다. 기존 사용자의 점수(70 포함)는 그대로 남습니다.
 - 이미 적용한 DB에서 다시 실행하면 첫 문장이 `Duplicate column name 'service_id'`로 실패하고 아무것도 바뀌지 않습니다.
+
+## Credit 감점 및 위험 정책 기준 (#60)
+
+AI 모델 `fds-if-v4.0.0`부터 `anomalyScore`는 **탐지 임계값을 0.5에 맞춘 값**입니다(0.5 이상이 이상 판정). 이에 맞춰 AI 감점식과 CAPTCHA 기준을 바꿨습니다. API의 요청·응답 형식, DB 스키마, 나머지 기준은 그대로입니다. 변경 근거와 시뮬레이션은 [issue60-credit-risk-policy/REPORT.md](issue60-credit-risk-policy/REPORT.md)에 있습니다.
+
+### Credit 계산식 (`POST /api/v1/users/{userId}/credit/evaluate`)
+
+```
+BaseCredit     = 100 × (A + 5) / (A + 2N + 1.5C + 10)                 변경 없음
+AI 감점        = 40 × max(0, 2 × anomalyScore − 1)                     변경 (이전: 40 × anomalyScore)
+Rule 감점      = min(30, 카드 + IP + 분산)                              변경 없음
+DynamicPenalty = min(70, AI 감점 + Rule 감점)                           변경 없음
+Credit         = round(max(0, min(100, BaseCredit − DynamicPenalty)))   변경 없음
+```
+
+| 항목 | 기준 |
+|---|---|
+| AI 감점 | `anomalyScore`를 0~1로 제한한 뒤 계산합니다. 0.5 이하는 0점, 0.75는 20점, 1.0은 40점입니다. 최신 평가가 없으면(null) 0점입니다 |
+| 카드 공유 | `user_card`의 같은 카드 해시를 등록한 고유 계정 수의 최댓값. 2~3계정 5점, 4계정 이상 15점 |
+| IP 집중도 | 요청의 `recentIpAttemptCount`가 5 이상이면 5점 |
+| 요청 간격 분산 | 요청의 `intervalVariance`가 null이 아니고 1.0 미만이면 5점. **null이면 감점하지 않습니다** |
+| 등급 | 40 이상 `NORMAL`, 20~39 `SUSPICIOUS`, 19 이하 `HIGH_RISK` |
+
+`intervalVariance`에는 Feature 정의 v2의 `bookingIntervalVariance`(유효한 예매 간격이 5개 미만이면 null)를 넘겨야 합니다. null을 0으로 바꿔 넘기면 감점됩니다.
+
+이미 저장된 `user_credit.dynamic_penalty`는 다시 계산하지 않습니다. 이전 식으로 저장된 감점은 다음 평가(`/credit/evaluate`) 때 새 식으로 바뀝니다.
+
+### 위험 정책 (`PolicyDecisionService`)
+
+위에서부터 먼저 맞는 조건을 적용합니다.
+
+| 순서 | 조건 | action |
+|---|---|---|
+| 0 | 최신 RiskAssessment 없음 | Credit 40 이상 `ALLOW`, 20~39 `REQUIRE_CAPTCHA`, 19 이하 `DELAY` |
+| 1 | Credit < 20 그리고 anomalyScore ≥ 0.85 | `RESTRICT` |
+| 2 | Credit < 20 또는 anomalyScore ≥ 0.70 | `DELAY` |
+| 3 | Credit < 40 또는 anomalyScore ≥ **0.50** | `REQUIRE_CAPTCHA` (이전: 0.40) |
+| 4 | 그 외 | `ALLOW` |
+
+`anomalyScore`는 매크로일 확률이 아니며, 모델 버전이 다르면 값의 눈금이 다릅니다. 현재 정책과 Credit 계산은 `model_version`을 구분하지 않고 최신 평가를 읽습니다. AI 연동 시 처리해야 할 사항은 위 보고서의 "후속 연동 확인 사항"에 정리했습니다.

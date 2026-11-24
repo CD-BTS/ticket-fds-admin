@@ -102,7 +102,7 @@ class CreditEvaluationServiceTest {
         given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
         given(bookingHistoryRepository.getBookingStatsByUserId(userId)).willReturn(null);
 
-        // AI 이상도 0.75 (30점 감점)
+        // AI 이상도 0.75: 40 * (2 * 0.75 - 1) = 20점 감점
         RiskAssessment risk = new RiskAssessment(user, 0.75, "HIGH_RISK");
         given(riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId))
                 .willReturn(Optional.of(risk));
@@ -118,12 +118,73 @@ class CreditEvaluationServiceTest {
         var summary = creditEvaluationService.evaluateAndApplyCredit(userId, context);
 
         // Then
-        // BaseCredit 50 - DynamicPenalty 45 (AI 30 + Card 15) = 5점 (HIGH_RISK)
-        assertThat(summary.newScore()).isEqualTo(5);
+        // BaseCredit 50 - DynamicPenalty 35 (AI 20 + Card 15) = 15점 (HIGH_RISK)
+        assertThat(summary.newScore()).isEqualTo(15);
+        assertThat(summary.dynamicPenalty()).isEqualTo(35.0);
         assertThat(summary.grade()).isEqualTo("HIGH_RISK");
         assertThat(summary.penaltyPolicy()).contains("후순위");
 
         verify(creditHistoryRepository).save(any(CreditHistory.class));
+    }
+
+    @Test
+    @DisplayName("[#60] 정상 판정 구간의 이상 점수(0.49)는 감점하지 않는다: 룰 감점만 적용")
+    void evaluateAndApplyCredit_ScoreBelowDetectionThresholdHasNoAiPenalty() {
+        UserCredit userCredit = newUser("below-threshold-user", 0.49);
+
+        // IP 집중도 5 + 요청 간격 분산 5 = 10
+        var summary = creditEvaluationService.evaluateAndApplyCredit("below-threshold-user",
+                new CreditEvaluationContext("평가", 5, 0.5));
+
+        assertThat(summary.dynamicPenalty()).isEqualTo(10.0);
+        assertThat(summary.newScore()).isEqualTo(40);
+        assertThat(summary.grade()).isEqualTo("NORMAL");
+        assertThat(userCredit.getDynamicPenalty()).isEqualTo(10.0);
+    }
+
+    @Test
+    @DisplayName("[#60] 탐지된 이상 점수(0.85)의 AI 감점 28점과 룰 감점 10점을 더한다")
+    void evaluateAndApplyCredit_AiAndRulePenaltyAreSummed() {
+        UserCredit userCredit = newUser("summed-user", 0.85);
+
+        var summary = creditEvaluationService.evaluateAndApplyCredit("summed-user",
+                new CreditEvaluationContext("평가", 5, 0.5));
+
+        assertThat(summary.dynamicPenalty()).isCloseTo(38.0, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(summary.newScore()).isEqualTo(12);
+        assertThat(summary.grade()).isEqualTo("HIGH_RISK");
+        assertThat(userCredit.getCreditScore()).isEqualTo(12);
+    }
+
+    @Test
+    @DisplayName("[#60] 요청 간격 분산이 null이면 분산 감점을 하지 않는다 (1.0 미만이면 5점, 1.0이면 0점)")
+    void evaluateAndApplyCredit_NullIntervalVarianceIsNotPenalized() {
+        newUser("variance-null", null);
+        assertThat(creditEvaluationService.evaluateAndApplyCredit("variance-null",
+                new CreditEvaluationContext("평가", 0, null)).dynamicPenalty()).isEqualTo(0.0);
+
+        newUser("variance-low", null);
+        assertThat(creditEvaluationService.evaluateAndApplyCredit("variance-low",
+                new CreditEvaluationContext("평가", 0, 0.99)).dynamicPenalty()).isEqualTo(5.0);
+
+        newUser("variance-boundary", null);
+        assertThat(creditEvaluationService.evaluateAndApplyCredit("variance-boundary",
+                new CreditEvaluationContext("평가", 0, 1.0)).dynamicPenalty()).isEqualTo(0.0);
+    }
+
+    /** 관람 이력과 카드가 없는 신규 사용자. anomalyScore가 null이면 RiskAssessment가 없는 사용자다. */
+    private UserCredit newUser(String userId, Double anomalyScore) {
+        UserAccount user = new UserAccount(userId, "service-1", "ext-" + userId);
+        UserCredit userCredit = new UserCredit(user);
+        given(userAccountRepository.findById(userId)).willReturn(Optional.of(user));
+        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(bookingHistoryRepository.getBookingStatsByUserId(userId)).willReturn(null);
+        given(riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId))
+                .willReturn(anomalyScore == null
+                        ? Optional.empty()
+                        : Optional.of(new RiskAssessment(user, anomalyScore, "fds-if-v4.0.0")));
+        given(userCardRepository.findByUser_UserId(userId)).willReturn(List.of());
+        return userCredit;
     }
 
     private static BookingStats stats(long completed, long noShow, long autoCancelled) {

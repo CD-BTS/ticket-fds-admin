@@ -12,7 +12,7 @@ public final class CreditPolicyConstants {
     public static final double BAYESIAN_TOTAL_SMOOTHING = 10.0; // alpha + beta (5 + 5)
 
     // 2. DynamicPenalty 가중치 및 상한
-    public static final double WEIGHT_ANOMALY_SCORE = 40.0;  // IF 최대 감점
+    public static final double WEIGHT_ANOMALY_SCORE = 40.0;  // IF 최대 감점 (anomalyScore 1.0일 때. 0.5 이하는 0점)
     public static final double MAX_RULE_PENALTY = 30.0;      // 룰 기반 최대 감점
     public static final double MAX_TOTAL_PENALTY = 70.0;     // 동적 감점 최대치
 
