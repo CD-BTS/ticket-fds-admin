@@ -36,6 +36,7 @@ import com.bts.fairticket.credit.service.CreditEvaluationService;
 import com.bts.fairticket.risk.client.AiInferenceClient;
 import com.bts.fairticket.risk.client.AiInferenceClient.AiPredictRequest;
 import com.bts.fairticket.risk.client.AiInferenceClient.AiPrediction;
+import com.bts.fairticket.risk.entity.RiskAssessment;
 import com.bts.fairticket.risk.repository.RiskAssessmentCursorRepository;
 import com.bts.fairticket.risk.repository.RiskAssessmentRepository;
 import com.bts.fairticket.risk.service.FeatureAggregationService;
@@ -194,8 +195,9 @@ class RiskAssessmentCursorMySqlTests {
 		pay(SERVICE, userId, "pay-A");
 		pay(SERVICE, userId, "pay-A");
 		assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_card WHERE user_id=?", Integer.class, userId));
-		// 카드 해시는 SHA-256(serviceId:paymentIdentifier)이고, 백필 SQL(db/manual/063)의 식과 같은 값이다.
-		assertEquals(jdbc.queryForObject("SELECT SHA2(CONCAT(?, ':', ?), 256)", String.class, SERVICE, "pay-A"),
+		// 카드 해시는 SHA-256("{serviceId 바이트 수}:{serviceId}:{결제 식별자}")이다.
+		assertEquals(jdbc.queryForObject("SELECT SHA2(CONCAT(LENGTH(?), ':', ?, ':', ?), 256)", String.class,
+				SERVICE, SERVICE, "pay-A"),
 				jdbc.queryForObject("SELECT card_hash FROM user_card WHERE user_id=?", String.class, userId));
 		assertEquals(50, evaluate());
 
@@ -213,6 +215,72 @@ class RiskAssessmentCursorMySqlTests {
 		pay(SERVICE, newUser(SERVICE), "pay-A");
 		assertEquals(35, evaluate());
 		assertEquals(15.0, penalty());
+	}
+
+	@Test
+	void paymentCardKeepsBookingTimeAndMatchesTheBackfillSql() throws Exception {
+		String other = newUser(SERVICE);
+		// 새 카드의 마지막 사용 시각은 처리 시각이 아니라 예매가 발생한 시각이다(초 단위로 버림).
+		payAt(userId, "pay-L", "2026-11-24T04:00:00.900Z");
+		assertEquals("2026-11-24 04:00:00", lastUsedAt(userId, "pay-L"));
+		// 늦게 도착한 과거 예매로는 되돌아가지 않고, 더 최근 예매로만 바뀐다. 행은 하나다.
+		payAt(userId, "pay-L", "2026-11-24T03:00:00.000Z");
+		assertEquals("2026-11-24 04:00:00", lastUsedAt(userId, "pay-L"));
+		payAt(userId, "pay-L", "2026-11-24T05:00:00.400Z");
+		assertEquals("2026-11-24 05:00:00", lastUsedAt(userId, "pay-L"));
+		// 앞뒤 공백·탭·CR·LF만 다른 식별자는 같은 카드다. 떼어낸 뒤 비었거나 문자열이 아니면 카드를 만들지 않는다.
+		payAt(userId, " \tpay-W\r\n", "2026-11-24T04:10:00.000Z");
+		payAt(other, "pay-W", "2026-11-24T04:20:00.999Z");
+		payAt(other, " \t\r\n", "2026-11-24T04:30:00.000Z");
+		payAt(other, 12345, "2026-11-24T04:40:00.000Z");
+		assertEquals(lastCardHash(userId, "2026-11-24 04:10:00"), lastCardHash(other, "2026-11-24 04:20:00"));
+
+		String rows = "SELECT CONCAT(user_id, '|', card_hash, '|', DATE_FORMAT(last_used_at, '%Y-%m-%d %H:%i:%s')) "
+				+ "FROM user_card WHERE user_id IN (?, ?) ORDER BY 1";
+		List<String> collected = jdbc.queryForList(rows, String.class, userId, other);
+		assertEquals(3, collected.size()); // userId: pay-L, pay-W / other: pay-W
+
+		// 백필 SQL(db/manual/063)을 그대로 실행해, 같은 이벤트에서 이벤트 수집과 같은 행이 나오는지 확인한다.
+		// 한 트랜잭션 안에서 실행하고 되돌리므로 DB에는 아무것도 남지 않는다.
+		String backfill = java.nio.file.Files.readAllLines(java.nio.file.Path.of(
+				"db/manual/063-backfill-user-card-from-booking-events.sql")).stream()
+				.filter(line -> !line.startsWith("--")).collect(java.util.stream.Collectors.joining("\n"))
+				.replace(";", "").trim();
+		new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+			jdbc.update("DELETE FROM user_card WHERE user_id IN (?, ?)", userId, other);
+			jdbc.execute(backfill);
+			assertEquals(collected, jdbc.queryForList(rows, String.class, userId, other));
+			// 다시 실행해도 행이 늘지 않는다.
+			int total = jdbc.queryForObject("SELECT COUNT(*) FROM user_card", Integer.class);
+			jdbc.execute(backfill);
+			assertEquals(total, jdbc.queryForObject("SELECT COUNT(*) FROM user_card", Integer.class));
+			assertEquals(collected, jdbc.queryForList(rows, String.class, userId, other));
+			tx.setRollbackOnly();
+		});
+		assertEquals(collected, jdbc.queryForList(rows, String.class, userId, other));
+	}
+
+	@Test
+	void lateCallbackOfAnOlderAssessmentDoesNotOverwriteCredit() {
+		var user = userAccountRepository.findById(userId).orElseThrow();
+		long older = riskAssessmentRepository.saveAndFlush(new RiskAssessment(user, 0.90, "fds-if-v4.0.0")).getAssessmentId();
+		long latest = riskAssessmentRepository.saveAndFlush(new RiskAssessment(user, 0.60, "fds-if-v4.0.0")).getAssessmentId();
+
+		// 최신 평가(0.60)의 콜백이 먼저 반영됐다: AI 감점 40 * (2 * 0.60 - 1) = 8 → 42
+		assertTrue(creditEvaluationService.evaluateAfterAssessment(userId,
+				new CreditEvaluationContext("AI 이상도 평가 반영", null, null), latest).isPresent());
+		assertEquals(42, score());
+		int history = jdbc.queryForObject("SELECT COUNT(*) FROM credit_history WHERE user_id=?", Integer.class, userId);
+
+		// 이전 평가의 콜백이 뒤늦게 실행된다. 예전 IP 시도 수(9회)와 분산(0.1)을 최신 점수에 섞지 않고 건너뛴다.
+		assertTrue(creditEvaluationService.evaluateAfterAssessment(userId,
+				new CreditEvaluationContext("AI 이상도 평가 반영", 9, 0.1), older).isEmpty());
+		assertEquals(42, score());
+		assertEquals(8.0, penalty(), 1e-9);
+		assertEquals(history, jdbc.queryForObject("SELECT COUNT(*) FROM credit_history WHERE user_id=?", Integer.class, userId));
+
+		// 수동 평가 API 경로는 평가 ID 없이 지금처럼 항상 계산한다.
+		assertEquals(42, evaluate());
 	}
 
 	@Test
@@ -323,6 +391,24 @@ class RiskAssessmentCursorMySqlTests {
 		String id = UUID.randomUUID().toString();
 		eventService.collect(new EventRequest(service, id, user, EventType.BOOKING, "b-" + id, null,
 				"2026-11-24T04:00:00Z", Map.of("paymentIdentifier", paymentIdentifier)), service);
+	}
+
+	/** 결제 식별자(원문 그대로)와 발생 시각을 지정한 BOOKING 이벤트를 실제 이벤트 등록 경로로 넣는다. */
+	private void payAt(String user, Object paymentIdentifier, String occurredAt) {
+		String id = UUID.randomUUID().toString();
+		eventService.collect(new EventRequest(SERVICE, id, user, EventType.BOOKING, "b-" + id, null,
+				occurredAt, Map.of("paymentIdentifier", paymentIdentifier)), SERVICE);
+	}
+
+	private String lastUsedAt(String user, String paymentIdentifier) {
+		return jdbc.queryForObject("SELECT DATE_FORMAT(last_used_at, '%Y-%m-%d %H:%i:%s') FROM user_card "
+				+ "WHERE user_id=? AND card_hash=SHA2(CONCAT(LENGTH(?), ':', ?, ':', ?), 256)", String.class,
+				user, SERVICE, SERVICE, paymentIdentifier);
+	}
+
+	private String lastCardHash(String user, String lastUsedAt) {
+		return jdbc.queryForObject("SELECT card_hash FROM user_card WHERE user_id=? AND last_used_at=?", String.class,
+				user, lastUsedAt);
 	}
 
 	/** IP가 실린 예매 시도 이벤트 1건. 같은 attemptId로 다시 부르면 같은 시도의 다음 단계가 된다. */

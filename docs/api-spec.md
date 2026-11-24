@@ -825,7 +825,7 @@ Credit         = round(max(0, min(100, BaseCredit − DynamicPenalty)))   변경
 | 항목 | 기준 |
 |---|---|
 | AI 감점 | `anomalyScore`를 0~1로 제한한 뒤 계산합니다. 0.5 이하는 0점, 0.75는 20점, 1.0은 40점입니다. 최신 평가가 없으면(null) 0점입니다 |
-| 카드 공유 | `user_card`의 같은 카드 해시를 가진 고유 계정 수의 최댓값. 2~3계정 5점, 4계정 이상 15점. `BOOKING` 이벤트의 `metadata.paymentIdentifier`가 `SHA-256(serviceId:paymentIdentifier)`로 `user_card`에 기록된다(#63) |
+| 카드 공유 | `user_card`의 같은 카드 해시를 가진 고유 계정 수의 최댓값. 2~3계정 5점, 4계정 이상 15점. `BOOKING` 이벤트의 `metadata.paymentIdentifier`가 `SHA-256("{serviceId 바이트 수}:{serviceId}:{결제 식별자}")`로 `user_card`에 기록된다(#63) |
 | IP 집중도 | `recentIpAttemptCount`(최근 10분 같은 IP의 고유 예매 시도 수)가 5 이상이면 5점. 수동 평가는 요청 값을, AI 평가 반영은 `BOOKING_ATTEMPT` 이벤트의 `metadata.ipAddress`로 센 값을 쓴다. IP가 없으면 감점하지 않는다(#63) |
 | 요청 간격 분산 | 요청의 `intervalVariance`가 null이 아니고 1.0 미만이면 5점. **null이면 감점하지 않습니다** |
 | 등급 | 40 이상 `NORMAL`, 20~39 `SUSPICIOUS`, 19 이하 `HIGH_RISK` |

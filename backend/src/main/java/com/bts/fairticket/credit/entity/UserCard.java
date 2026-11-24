@@ -52,9 +52,17 @@ public class UserCard {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now(ZoneOffset.UTC);
 
-    /** 같은 카드를 다시 썼을 때 마지막 사용 시각만 갱신한다. */
+    /** 같은 카드를 다시 썼을 때 더 최근 시각으로만 갱신한다. 늦게 도착한 과거 이벤트로는 되돌아가지 않는다. */
     public void markUsed(LocalDateTime usedAtUtc) {
         if (usedAtUtc != null && usedAtUtc.isAfter(this.lastUsedAt)) {
+            this.lastUsedAt = usedAtUtc;
+        }
+    }
+
+    /** 예매 이벤트에서 처음 본 카드. 마지막 사용 시각은 그 예매가 발생한 시각(UTC)이다 (#63). */
+    public UserCard(UserAccount user, String cardHash, LocalDateTime usedAtUtc) {
+        this(user, cardHash, null, null);
+        if (usedAtUtc != null) {
             this.lastUsedAt = usedAtUtc;
         }
     }

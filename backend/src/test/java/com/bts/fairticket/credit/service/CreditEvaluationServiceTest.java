@@ -173,6 +173,82 @@ class CreditEvaluationServiceTest {
     }
 
     /** 관람 이력과 카드가 없는 신규 사용자. anomalyScore가 null이면 RiskAssessment가 없는 사용자다. */
+    // ---- #63: 늦게 실행된 이전 AI 평가의 콜백은 Credit을 바꾸지 않는다 ----
+
+    @Test
+    @DisplayName("[#63] 더 새로운 평가가 저장된 뒤 실행된 이전 평가의 콜백은 Credit과 이력을 바꾸지 않는다")
+    void evaluateAfterAssessment_SkipsWhenANewerAssessmentExists() {
+        String userId = "stale-callback";
+        UserAccount user = new UserAccount(userId, "service-1", "ext-stale");
+        UserCredit userCredit = new UserCredit(user);
+        RiskAssessment newer = org.mockito.Mockito.mock(RiskAssessment.class);
+        given(newer.getAssessmentId()).willReturn(9L);
+        given(userAccountRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
+        given(userCreditRepository.findByIdForUpdate(userId)).willReturn(Optional.of(userCredit));
+        given(riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId))
+                .willReturn(Optional.of(newer));
+
+        // 평가 5의 콜백: IP 시도 9회, 분산 0.1(둘 다 감점 조건)을 들고 왔지만 최신 평가는 9다.
+        var result = creditEvaluationService.evaluateAfterAssessment(userId,
+                new CreditEvaluationContext("AI 이상도 평가 반영", 9, 0.1), 5L);
+
+        assertThat(result).isEmpty();
+        assertThat(userCredit.getCreditScore()).isEqualTo(50);
+        assertThat(userCredit.getDynamicPenalty()).isNull();
+        verify(userCreditRepository, org.mockito.Mockito.never()).save(any());
+        verify(creditHistoryRepository, org.mockito.Mockito.never()).save(any());
+        // 잠금 순서는 그대로 user_account → user_credit이다.
+        var order = org.mockito.Mockito.inOrder(userAccountRepository, userCreditRepository);
+        order.verify(userAccountRepository).findByIdForUpdate(userId);
+        order.verify(userCreditRepository).findByIdForUpdate(userId);
+    }
+
+    @Test
+    @DisplayName("[#63] 여전히 최신인 평가의 콜백은 그 평가의 점수와 룰 감점 입력값으로 Credit을 갱신한다")
+    void evaluateAfterAssessment_AppliesWhenStillLatest() {
+        String userId = "latest-callback";
+        UserCredit userCredit = newUser(userId, null);
+        RiskAssessment latest = org.mockito.Mockito.mock(RiskAssessment.class);
+        given(latest.getAssessmentId()).willReturn(5L);
+        given(latest.getAnomalyScore()).willReturn(0.75);
+        given(riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId))
+                .willReturn(Optional.of(latest));
+
+        var result = creditEvaluationService.evaluateAfterAssessment(userId,
+                new CreditEvaluationContext("AI 이상도 평가 반영", 5, null), 5L);
+
+        // AI 감점 40 * (2 * 0.75 - 1) = 20, IP 감점 5 → 50 - 25 = 25
+        assertThat(result).isPresent();
+        assertThat(result.get().newScore()).isEqualTo(25);
+        assertThat(userCredit.getDynamicPenalty()).isEqualTo(25.0);
+        verify(creditHistoryRepository).save(any(CreditHistory.class));
+    }
+
+    // ---- #63: 카드 해시 입력 규칙 (db/manual/063 백필 SQL과 같은 규칙) ----
+
+    @Test
+    @DisplayName("[#63] 카드 해시: 앞뒤 공백·탭·CR·LF만 떼고, serviceId 길이를 포함해 조합이 섞이지 않는다")
+    void cardHash_NormalizesIdentifierAndIsUnambiguous() throws Exception {
+        String expected = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest("3:svc:pay-1".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertThat(BookingHistoryService.cardHash("svc", java.util.Map.of("paymentIdentifier", "pay-1"))).isEqualTo(expected);
+        assertThat(BookingHistoryService.cardHash("svc", java.util.Map.of("paymentIdentifier", " \t\r\npay-1 \n\r\t")))
+                .isEqualTo(expected);
+        // 안쪽 공백은 식별자의 일부다.
+        assertThat(BookingHistoryService.cardHash("svc", java.util.Map.of("paymentIdentifier", "pay 1"))).isNotEqualTo(expected);
+        // 길이를 넣지 않으면 "a:b" + ":" + "c"와 "a" + ":" + "b:c"가 같은 문자열이 된다.
+        assertThat(BookingHistoryService.cardHash("a:b", java.util.Map.of("paymentIdentifier", "c")))
+                .isNotEqualTo(BookingHistoryService.cardHash("a", java.util.Map.of("paymentIdentifier", "b:c")));
+        // 같은 식별자라도 서비스가 다르면 다른 카드다.
+        assertThat(BookingHistoryService.cardHash("other", java.util.Map.of("paymentIdentifier", "pay-1"))).isNotEqualTo(expected);
+        // 식별자가 없거나, 문자열이 아니거나, 떼어낸 뒤 비어 있으면 카드를 만들지 않는다.
+        assertThat(BookingHistoryService.cardHash("svc", java.util.Map.of())).isNull();
+        assertThat(BookingHistoryService.cardHash("svc", null)).isNull();
+        assertThat(BookingHistoryService.cardHash("svc", java.util.Map.of("paymentIdentifier", 1234))).isNull();
+        assertThat(BookingHistoryService.cardHash("svc", java.util.Map.of("paymentIdentifier", " \t\r\n"))).isNull();
+        assertThat(BookingHistoryService.cardHash(null, java.util.Map.of("paymentIdentifier", "pay-1"))).isNull();
+    }
+
     private UserCredit newUser(String userId, Double anomalyScore) {
         UserAccount user = new UserAccount(userId, "service-1", "ext-" + userId);
         UserCredit userCredit = new UserCredit(user);

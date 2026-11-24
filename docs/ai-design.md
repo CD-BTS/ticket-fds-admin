@@ -50,10 +50,11 @@ Demo ──(행동 이벤트)──▶ behavior_event
 
 ## Credit 반영 (`RiskAssessedCreditListener`)
 - `@TransactionalEventListener(AFTER_COMMIT)`와 REQUIRES_NEW 트랜잭션을 씁니다. 평가가 커밋된 뒤에만 Credit을 바꿉니다.
+- 콜백은 평가 ID를 함께 넘기고, 사용자 행을 잠근 뒤 그 평가가 여전히 최신일 때만 Credit을 바꿉니다. 더 새로운 평가가 이미 저장됐다면 건너뜁니다(#63). 수동 평가 API는 이 확인 없이 항상 계산합니다.
 - Credit 재산출이 실패해도 평가는 되돌리지 않습니다. 다음 평가 때 다시 반영됩니다.
 - 룰 감점의 `intervalVariance`에는 평가에 쓴 `bookingIntervalVariance`를 넘깁니다.
 - 룰 감점의 `recentIpAttemptCount`에는 같은 분석 시각 기준 최근 10분 동안 같은 IP에서 들어온 고유 예매 시도 수를 넘깁니다(#63). `BOOKING_ATTEMPT` 이벤트의 `metadata.ipAddress`만 보고, 같은 서비스의 모든 계정을 합쳐 `attemptId` 기준으로 셉니다. 사용자가 그 10분 안에 쓴 IP가 여러 개면 가장 큰 값입니다. IP가 실린 시도 이벤트가 없으면 null(감점 없음)입니다. AI Feature `ipBookingDensity`(30일, 예매 완료 기준 고유 계정 수)와는 다른 값이며 AI 요청에는 넣지 않습니다.
-- 카드 공유 룰 감점은 `user_card`를 읽습니다. `BOOKING` 이벤트가 등록될 때 `metadata.paymentIdentifier`를 `SHA-256(serviceId:paymentIdentifier)` 해시로 `user_card`에 남깁니다(#63). 같은 사용자의 반복 결제는 1행이고, 해시에 serviceId가 들어가 서비스 간에 섞이지 않습니다. #63 이전 이벤트는 `db/manual/063-backfill-user-card-from-booking-events.sql`로 채웁니다.
+- 카드 공유 룰 감점은 `user_card`를 읽습니다. `BOOKING` 이벤트가 등록될 때 `metadata.paymentIdentifier`를 `SHA-256("{serviceId의 UTF-8 바이트 수}:{serviceId}:{결제 식별자}")` 해시로 `user_card`에 남깁니다(#63). 결제 식별자는 앞뒤의 공백·탭·CR·LF만 떼어내고, 비어 있거나 문자열이 아니면 기록하지 않습니다. 같은 사용자의 반복 결제는 1행이고 `last_used_at`은 가장 최근 예매의 발생 시각입니다. 해시에 serviceId와 그 길이가 들어가 서비스 간에 섞이지 않습니다. #63 이전 이벤트는 `db/manual/063-backfill-user-card-from-booking-events.sql`로 채웁니다.
 
 ## 설정 (`application.properties`)
 | 환경변수 | 기본값 | 설명 |

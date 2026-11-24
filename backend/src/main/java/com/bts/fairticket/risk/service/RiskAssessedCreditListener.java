@@ -40,7 +40,9 @@ public class RiskAssessedCreditListener {
 			// 간격 분산은 평가에 쓴 Feature 값을 쓴다.
 			var context = new CreditEvaluationContext(TRIGGER_REASON, event.recentIpAttemptCount(),
 					event.bookingIntervalVariance());
-			newTransaction.executeWithoutResult(tx -> credits.evaluateAndApplyCredit(event.userId(), context));
+			// 이 평가가 여전히 최신일 때만 반영한다. 늦게 실행된 이전 평가의 콜백은 Credit을 바꾸지 않는다.
+			newTransaction.executeWithoutResult(tx ->
+					credits.evaluateAfterAssessment(event.userId(), context, event.assessmentId()));
 		} catch (RuntimeException exception) {
 			log.warn("Credit re-evaluation after AI assessment failed (user={}, assessmentId={}): {}",
 					event.userId(), event.assessmentId(), exception.toString());
