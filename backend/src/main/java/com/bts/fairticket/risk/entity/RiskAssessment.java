@@ -49,9 +49,40 @@ public class RiskAssessment {
 	@Column(name = "assessed_at", nullable = false, columnDefinition = "datetime", insertable = false, updatable = false)
 	private LocalDateTime assessedAt;
 
+	// AI에 실제로 보낸 Feature 6개 (#67). 저장할 때 다시 계산하지 않는다. 계산할 수 없던 값과 #67 이전 행은 null이다.
+	@Column(name = "booking_count")
+	private Integer bookingCount;
+
+	@Column(name = "avg_booking_interval", columnDefinition = "double")
+	private Double avgBookingInterval;
+
+	@Column(name = "booking_interval_variance", columnDefinition = "double")
+	private Double bookingIntervalVariance;
+
+	@Column(name = "cancel_rate", columnDefinition = "double")
+	private Double cancelRate;
+
+	@Column(name = "card_reuse_count")
+	private Integer cardReuseCount;
+
+	@Column(name = "ip_booking_density")
+	private Integer ipBookingDensity;
+
 	public RiskAssessment(UserAccount user, Double anomalyScore, String modelVersion) {
 		this.user = user;
 		this.anomalyScore = anomalyScore;
 		this.modelVersion = modelVersion;
+	}
+
+	/** @param sent 이 평가의 AI 요청에 넣은 Feature 값 */
+	public RiskAssessment(UserAccount user, Double anomalyScore, String modelVersion,
+			com.bts.fairticket.risk.dto.UserCalculatedFeatures sent) {
+		this(user, anomalyScore, modelVersion);
+		this.bookingCount = sent.getBookingCount();
+		this.avgBookingInterval = sent.getAvgBookingInterval();
+		this.bookingIntervalVariance = sent.getBookingIntervalVariance();
+		this.cancelRate = sent.getCancelRate();
+		this.cardReuseCount = sent.getCardReuseCount();
+		this.ipBookingDensity = sent.getIpBookingDensity();
 	}
 }
