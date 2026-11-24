@@ -50,7 +50,7 @@ class EventServiceTests {
 	@EnumSource(EventType.class)
 	void savesEachTypeWithOriginalTimeAndMetadata(EventType type) {
 		var request = request(type);
-		when(users.findById("user")).thenReturn(Optional.of(new UserAccount("user", "service", "external-user")));
+		when(users.findByIdForUpdate("user")).thenReturn(Optional.of(new UserAccount("user", "service", "external-user")));
 		when(events.findByServiceIdAndExternalEventId("service", "external")).thenReturn(Optional.empty());
 		when(events.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 		var result = new EventRegistrationTransaction(events, users, bookingHistory).register(request);
@@ -58,6 +58,10 @@ class EventServiceTests {
 		assertEquals(type.name(), result.event().eventType());
 		assertEquals(request.occurredAt(), result.event().occurredAt());
 		assertEquals(request.metadata(), result.event().metadata());
+		// #40: event_id가 발급되기 전에 사용자 행을 잠근다.
+		var order = inOrder(users, events);
+		order.verify(users).findByIdForUpdate("user");
+		order.verify(events).saveAndFlush(any());
 	}
 
 	@Test
@@ -81,7 +85,7 @@ class EventServiceTests {
 	void missingAndOtherServiceUsersAreNotFoundWithoutEventAccess() {
 		for (Optional<UserAccount> user : java.util.List.of(Optional.<UserAccount>empty(),
 				Optional.of(new UserAccount("user", "other", "external-user")))) {
-			when(users.findById("user")).thenReturn(user);
+			when(users.findByIdForUpdate("user")).thenReturn(user);
 			var error = assertThrows(ApiException.class,
 					() -> new EventRegistrationTransaction(events, users, bookingHistory).register(request(EventType.BOOKING)));
 			assertEquals(ResponseCode.USER_NOT_FOUND, error.getResponseCode());

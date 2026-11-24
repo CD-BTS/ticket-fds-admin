@@ -78,16 +78,20 @@ public class RiskAssessmentService {
 
 	public record RunSummary(int candidates, int assessed, int insufficient, int invalid) { }
 
-	private record Prepared(String userId, long maxEventId, UserCalculatedFeatures features) { }
+	private record Prepared(String userId, long advanceToEventId, UserCalculatedFeatures features) { }
 
 	/** 한 주기 실행. AI 서버 장애면 AiUnavailableException을 던지고, 이미 처리한 배치의 결과는 유지된다. */
 	public RunSummary runOnce() {
-		var candidates = cursors.findCandidates(maxUsersPerRun);
+		// 한 주기 안에서는 같은 분석 시각을 쓴다. 후보 선정(커서를 옮길 위치)과 Feature 집계가 같은 기준을 써야
+		// 집계에 반영되지 않은 이벤트를 커서가 넘어가지 않는다. occurred_at이 datetime(3)이므로 밀리초까지 유지한다.
+		LocalDateTime calculatedAt = LocalDateTime.now(clock.withZone(ZoneOffset.UTC)).truncatedTo(ChronoUnit.MILLIS);
+		var candidates = cursors.findCandidates(calculatedAt, maxUsersPerRun);
 		if (candidates.isEmpty()) return new RunSummary(0, 0, 0, 0);
 
-		// 한 주기 안에서는 같은 분석 시각을 쓴다. AI는 UTC 오프셋이 붙은 ISO-8601을 요구한다.
-		LocalDateTime calculatedAt = LocalDateTime.now(clock.withZone(ZoneOffset.UTC)).truncatedTo(ChronoUnit.SECONDS);
+		// AI는 UTC 오프셋이 붙은 ISO-8601을 요구한다 (예: 2026-11-24T05:00:00.789Z).
 		String calculatedAtIso = calculatedAt.toInstant(ZoneOffset.UTC).toString();
+		// risk_assessment_cursor.checked_at은 초 단위 DATETIME이다. DB 반올림에 맡기지 않고 버린다.
+		LocalDateTime checkedAt = calculatedAt.truncatedTo(ChronoUnit.SECONDS);
 
 		int assessed = 0, insufficient = 0, invalid = 0;
 		for (int from = 0; from < candidates.size(); from += batchSize) {
@@ -101,7 +105,7 @@ public class RiskAssessmentService {
 							FeatureAggregationService.WINDOW_DAYS,
 							new AiFeatures(f.getBookingCount(), f.getAvgBookingInterval(), f.getBookingIntervalVariance(),
 									f.getCancelRate(), f.getCardReuseCount(), f.getIpBookingDensity()));
-					prepared.add(new Prepared(candidate.getUserId(), candidate.getMaxEventId(), f));
+					prepared.add(new Prepared(candidate.getUserId(), candidate.getAdvanceToEventId(), f));
 					requests.add(request);
 				} catch (RuntimeException exception) {
 					log.warn("AI feature aggregation failed (user={}): {}", candidate.getUserId(), exception.toString());
@@ -114,7 +118,7 @@ public class RiskAssessmentService {
 			for (int i = 0; i < prepared.size(); i++) {
 				Prepared p = prepared.get(i);
 				try {
-					String status = apply(p, results.get(i), calculatedAt);
+					String status = apply(p, results.get(i), checkedAt);
 					switch (status) {
 						case OK -> assessed++;
 						case INSUFFICIENT_DATA -> insufficient++;
@@ -151,7 +155,7 @@ public class RiskAssessmentService {
 						r == null ? null : r.errors());
 			}
 			RiskAssessmentCursor cursor = cursors.findById(p.userId()).orElseGet(() -> new RiskAssessmentCursor(p.userId()));
-			cursor.advance(p.maxEventId(), finalStatus, checkedAt);
+			cursor.advance(p.advanceToEventId(), finalStatus, checkedAt);
 			cursors.save(cursor);
 		});
 		return finalStatus;

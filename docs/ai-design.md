@@ -39,7 +39,8 @@ Demo ──(행동 이벤트)──▶ behavior_event
 - 정책·Credit 임계값은 #60에서 이 점수 체계에 맞춰 조정했습니다(`PolicyDecisionService`, `CreditCalculator`).
 
 ## 평가 대상과 재시도 (`risk_assessment_cursor`)
-- **평가 대상:** 마지막 평가 이후 `behavior_event.event_id`가 늘어난 사용자. 늦게 도착한 이벤트(Outbox 재전송)도 event_id로 잡힙니다.
+- **평가 대상:** 마지막 평가 이후 `behavior_event.event_id`가 늘어난 사용자. 늦게 도착한 이벤트(Outbox 재전송)도 event_id로 잡힙니다. 이벤트 등록은 사용자 단위로 직렬화되어(`user_account` 행 잠금) 한 사용자 안에서는 event_id 순서와 커밋 순서가 같습니다.
+- **분석 시각(cutoff):** 한 주기의 후보 선정과 Feature 집계는 같은 밀리초 단위 UTC 시각을 씁니다. 새 이벤트 중 `occurred_at`이 분석 시각보다 뒤인 것이 있으면 진행 위치는 그 이벤트 바로 앞까지만 옮기고, 그 시각이 지난 뒤 실행에서 다시 평가합니다.
 - **진행 위치 기록:** OK뿐 아니라 INSUFFICIENT_DATA·INVALID도 기록합니다. 데이터가 부족한 사용자를 매 주기 반복 호출하지 않기 위해서입니다. 새 이벤트가 오면 다시 평가합니다.
 - **AI 서버 장애:** 네트워크 오류, 타임아웃, 4xx/5xx가 나면 진행 위치를 바꾸지 않습니다. 다음 주기에 그대로 다시 시도합니다.
 - **처리 단위:** 사용자별로 트랜잭션을 따로 엽니다. 한 사용자의 저장 실패가 다른 사용자에게 영향을 주지 않습니다.

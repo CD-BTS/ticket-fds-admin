@@ -303,7 +303,8 @@ class EventApiMySqlTests {
 	@Test
 	void concurrentIdenticalRequestsSaveExactlyOneEvent() throws Exception {
 		var request = request(EventType.BOOKING, UUID.randomUUID().toString());
-		synchronizeInitialReads(request.externalEventId(), 4);
+		// #40: 같은 사용자의 등록은 user_account 행 잠금으로 직렬화되므로 초기 조회가 동시에 비어 있는 순간은
+		// 더 이상 생기지 않는다. 한 건만 저장되고 나머지는 재전송으로 처리되는 결과는 그대로다.
 		var results = concurrent(java.util.Collections.nCopies(4, request));
 		var successful = results.stream().map(result -> (RegistrationResult) result).toList();
 		assertEquals(1, successful.stream().filter(RegistrationResult::created).count());
@@ -314,7 +315,11 @@ class EventApiMySqlTests {
 	@Test
 	void concurrentDifferentContentsHaveOneWinnerAndOneConflict() throws Exception {
 		var first = request(EventType.BOOKING, UUID.randomUUID().toString());
-		var second = new EventRequest(SERVICE_A, first.externalEventId(), userId, EventType.CANCEL,
+		// #40: 같은 사용자의 등록은 직렬화되므로, UNIQUE 충돌 복구 경로는 같은 externalEventId를 보낸
+		// 같은 서비스의 다른 사용자로 만든다(사용자 행 잠금이 서로 다르다).
+		String otherUser = userService.register(new UserRegistrationRequest(SERVICE_A,
+				UUID.randomUUID().toString()), SERVICE_A).user().userId();
+		var second = new EventRequest(SERVICE_A, first.externalEventId(), otherUser, EventType.CANCEL,
 				"booking", null, first.occurredAt(), first.metadata());
 		synchronizeInitialReads(first.externalEventId(), 2);
 		var results = concurrent(List.of(first, second));

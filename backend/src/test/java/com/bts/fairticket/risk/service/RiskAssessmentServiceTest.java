@@ -44,7 +44,9 @@ import com.bts.fairticket.user.repository.UserAccountRepository;
 class RiskAssessmentServiceTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-24T05:00:00.789Z");
-	private static final LocalDateTime NOW_UTC = LocalDateTime.of(2026, 11, 24, 5, 0, 0);
+	// 분석 시각은 밀리초까지 유지한다(occurred_at이 datetime(3)). 커서의 checked_at만 초 단위다.
+	private static final LocalDateTime NOW_UTC = LocalDateTime.of(2026, 11, 24, 5, 0, 0, 789_000_000);
+	private static final LocalDateTime CHECKED_AT = LocalDateTime.of(2026, 11, 24, 5, 0, 0);
 
 	@Mock RiskAssessmentCursorRepository cursors;
 	@Mock FeatureAggregationService features;
@@ -65,10 +67,10 @@ class RiskAssessmentServiceTest {
 		when(assessments.save(any())).thenAnswer(inv -> inv.getArgument(0));
 	}
 
-	private static Candidate candidate(String userId, long maxEventId) {
+	private static Candidate candidate(String userId, long advanceToEventId) {
 		return new Candidate() {
 			public String getUserId() { return userId; }
-			public Long getMaxEventId() { return maxEventId; }
+			public Long getAdvanceToEventId() { return advanceToEventId; }
 		};
 	}
 
@@ -88,7 +90,7 @@ class RiskAssessmentServiceTest {
 
 	@Test
 	void savesOkResultsPublishesEventAndAdvancesCursorForEveryStatus() {
-		when(cursors.findCandidates(500)).thenReturn(List.of(candidate("u1", 10), candidate("u2", 20), candidate("u3", 30)));
+		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of(candidate("u1", 10), candidate("u2", 20), candidate("u3", 30)));
 		when(features.aggregateFeatures(any(), eq(NOW_UTC))).thenReturn(features(0.01));
 		when(ai.predictBatch(anyList())).thenAnswer(inv -> {
 			List<AiPredictRequest> reqs = inv.getArgument(0);
@@ -121,12 +123,12 @@ class RiskAssessmentServiceTest {
 		assertEquals("OK", byUser.get("u1").getLastStatus());
 		assertEquals("INSUFFICIENT_DATA", byUser.get("u2").getLastStatus());
 		assertEquals("INVALID", byUser.get("u3").getLastStatus());
-		assertEquals(NOW_UTC, byUser.get("u3").getCheckedAt());
+		assertEquals(CHECKED_AT, byUser.get("u3").getCheckedAt());
 	}
 
 	@Test
-	void sendsUtcCalculatedAtAndThirtyDayWindow() {
-		when(cursors.findCandidates(500)).thenReturn(List.of(candidate("u1", 1)));
+	void sendsUtcCalculatedAtWithMillisAndThirtyDayWindow() {
+		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of(candidate("u1", 1)));
 		when(features.aggregateFeatures("u1", NOW_UTC)).thenReturn(features(null));
 		when(ai.predictBatch(anyList())).thenReturn(List.of(status("u1", "INSUFFICIENT_DATA")));
 
@@ -136,7 +138,10 @@ class RiskAssessmentServiceTest {
 		ArgumentCaptor<List<AiPredictRequest>> sent = ArgumentCaptor.forClass(List.class);
 		verify(ai).predictBatch(sent.capture());
 		AiPredictRequest req = sent.getValue().get(0);
-		assertEquals("2026-11-24T05:00:00Z", req.calculatedAt());
+		assertEquals("2026-11-24T05:00:00.789Z", req.calculatedAt());
+		// 후보 선정과 Feature 집계가 같은 분석 시각을 쓴다.
+		verify(cursors).findCandidates(NOW_UTC, 500);
+		verify(features).aggregateFeatures("u1", NOW_UTC);
 		assertEquals(30, req.windowDays());
 		assertNull(req.features().bookingIntervalVariance());
 		assertEquals(7, req.features().bookingCount());
@@ -144,7 +149,7 @@ class RiskAssessmentServiceTest {
 
 	@Test
 	void aiOutageLeavesCursorsUntouchedForRetry() {
-		when(cursors.findCandidates(500)).thenReturn(List.of(candidate("u1", 10)));
+		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of(candidate("u1", 10)));
 		when(features.aggregateFeatures(any(), any())).thenReturn(features(null));
 		when(ai.predictBatch(anyList())).thenThrow(new AiUnavailableException("down"));
 
@@ -155,7 +160,7 @@ class RiskAssessmentServiceTest {
 
 	@Test
 	void rejectsMismatchedUserOrOutOfRangeScoreWithoutSaving() {
-		when(cursors.findCandidates(500)).thenReturn(List.of(candidate("u1", 10), candidate("u2", 11)));
+		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of(candidate("u1", 10), candidate("u2", 11)));
 		when(features.aggregateFeatures(any(), any())).thenReturn(features(null));
 		when(ai.predictBatch(anyList())).thenReturn(List.of(ok("someone-else", 0.7), ok("u2", 1.5)));
 
@@ -168,7 +173,7 @@ class RiskAssessmentServiceTest {
 
 	@Test
 	void noCandidatesMeansNoAiCall() {
-		when(cursors.findCandidates(500)).thenReturn(List.of());
+		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of());
 		assertEquals(new RiskAssessmentService.RunSummary(0, 0, 0, 0), service.runOnce());
 		verifyNoInteractions(ai);
 	}
