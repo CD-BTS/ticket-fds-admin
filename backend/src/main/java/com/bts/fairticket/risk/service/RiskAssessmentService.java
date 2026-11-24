@@ -95,23 +95,33 @@ public class RiskAssessmentService {
 			List<Prepared> prepared = new ArrayList<>(chunk.size());
 			List<AiPredictRequest> requests = new ArrayList<>(chunk.size());
 			for (var candidate : chunk) {
-				UserCalculatedFeatures f = features.aggregateFeatures(candidate.getUserId(), calculatedAt);
-				prepared.add(new Prepared(candidate.getUserId(), candidate.getMaxEventId(), f));
-				requests.add(new AiPredictRequest(candidate.getUserId(), calculatedAtIso, FeatureAggregationService.WINDOW_DAYS,
-						new AiFeatures(f.getBookingCount(), f.getAvgBookingInterval(), f.getBookingIntervalVariance(),
-								f.getCancelRate(), f.getCardReuseCount(), f.getIpBookingDensity())));
+				try {
+					UserCalculatedFeatures f = features.aggregateFeatures(candidate.getUserId(), calculatedAt);
+					AiPredictRequest request = new AiPredictRequest(candidate.getUserId(), calculatedAtIso,
+							FeatureAggregationService.WINDOW_DAYS,
+							new AiFeatures(f.getBookingCount(), f.getAvgBookingInterval(), f.getBookingIntervalVariance(),
+									f.getCancelRate(), f.getCardReuseCount(), f.getIpBookingDensity()));
+					prepared.add(new Prepared(candidate.getUserId(), candidate.getMaxEventId(), f));
+					requests.add(request);
+				} catch (RuntimeException exception) {
+					log.warn("AI feature aggregation failed (user={}): {}", candidate.getUserId(), exception.toString());
+				}
 			}
+			if (requests.isEmpty()) continue;
 
 			List<AiPrediction> results = ai.predictBatch(requests);
 
 			for (int i = 0; i < prepared.size(); i++) {
 				Prepared p = prepared.get(i);
-				AiPrediction r = results.get(i);
-				String status = apply(p, r, calculatedAt);
-				switch (status) {
-					case OK -> assessed++;
-					case INSUFFICIENT_DATA -> insufficient++;
-					default -> invalid++;
+				try {
+					String status = apply(p, results.get(i), calculatedAt);
+					switch (status) {
+						case OK -> assessed++;
+						case INSUFFICIENT_DATA -> insufficient++;
+						default -> invalid++;
+					}
+				} catch (RuntimeException exception) {
+					log.warn("AI assessment persistence failed (user={}): {}", p.userId(), exception.toString());
 				}
 			}
 		}
