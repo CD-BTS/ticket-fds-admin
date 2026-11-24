@@ -35,7 +35,10 @@ public class EventRegistrationTransaction {
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
 	public RegistrationResult register(EventRequest request) {
-		var user = users.findById(request.userId())
+		// 같은 사용자의 이벤트 등록을 event_id 발급 전에 직렬화한다 (#40). 잠금은 커밋까지 유지되므로
+		// 한 사용자 안에서는 event_id 순서와 커밋 순서가 같아지고, AI 평가 커서(사용자별 last_event_id)가
+		// 늦게 커밋된 작은 event_id를 건너뛰지 않는다.
+		var user = users.findByIdForUpdate(request.userId())
 				.filter(account -> account.getServiceId().equals(request.serviceId()))
 				.orElseThrow(() -> new ApiException(ResponseCode.USER_NOT_FOUND));
 		var existing = findExisting(request);

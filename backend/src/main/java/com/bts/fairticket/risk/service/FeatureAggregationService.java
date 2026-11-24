@@ -29,6 +29,8 @@ import lombok.RequiredArgsConstructor;
 public class FeatureAggregationService {
 
     public static final int WINDOW_DAYS = 30;
+    /** ticket-fds-ai 최종 모델(#20): 간격 분산은 간격 5개(시도 6건) 이상일 때만 계산하고, 그 미만은 null로 보낸다. */
+    static final int MIN_INTERVALS_FOR_VARIANCE = 5;
     static final String EVENT_BOOKING_ATTEMPT = "BOOKING_ATTEMPT";
     static final String META_ATTEMPT_ID = "attemptId";
     static final String META_PAYMENT_IDENTIFIER = "paymentIdentifier";
@@ -103,7 +105,8 @@ public class FeatureAggregationService {
         List<LocalDateTime> attemptTimes = attemptStarts.values().stream().sorted().toList();
         int bookingCount = attemptTimes.size();
 
-        // avg_booking_interval, booking_interval_variance: 연속 시도 시작 시각 간격, 시도 2건 미만이면 null
+        // avg_booking_interval: 연속 시도 시작 시각 간격의 평균, 시도 2건 미만이면 null
+        // booking_interval_variance: 같은 간격의 모분산, 간격 5개 미만(시도 6건 미만)이면 null (ticket-fds-ai #20)
         Double avgBookingInterval = null;
         Double bookingIntervalVariance = null;
         if (bookingCount >= 2) {
@@ -113,7 +116,9 @@ public class FeatureAggregationService {
                 intervals[i - 1] = Math.max(0L, diff.toMillis()) / 1000.0;
             }
             avgBookingInterval = mean(intervals);
-            bookingIntervalVariance = populationVariance(intervals, avgBookingInterval);
+            if (intervals.length >= MIN_INTERVALS_FOR_VARIANCE) {
+                bookingIntervalVariance = populationVariance(intervals, avgBookingInterval);
+            }
         }
 
         return UserCalculatedFeatures.builder()

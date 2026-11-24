@@ -163,3 +163,11 @@ CREATE TABLE `concert` (
   `venue` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE UNIQUE INDEX `concert_service_concert` ON `concert` (`service_id`, `concert_id`);
+
+-- #40: 사용자별 AI 평가 진행 위치. 기존 DB: db/manual/062-create-risk-assessment-cursor.sql
+CREATE TABLE `risk_assessment_cursor` (
+  `user_id` varchar(50) PRIMARY KEY COMMENT 'BTS 내부 사용자 ID',
+  `last_event_id` bigint NOT NULL COMMENT 'AI 평가에 마지막으로 반영한 behavior_event.event_id',
+  `last_status` varchar(20) NOT NULL COMMENT 'OK, INSUFFICIENT_DATA, INVALID',
+  `checked_at` datetime NOT NULL COMMENT '마지막 평가 시각 (UTC)'
+);

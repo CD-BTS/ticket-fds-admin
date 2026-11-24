@@ -81,6 +81,10 @@ public class NoShowService {
     }
 
     private int markForUser(String userId, LocalDateTime cutoff) {
+        // 잠금 순서는 이벤트 등록과 같게 user_account → user_credit으로 맞춘다 (#40).
+        // credit_history INSERT의 FK 검사가 user_account 행에 공유 잠금을 걸기 때문에,
+        // user_credit을 먼저 잠그면 같은 사용자의 이벤트 등록과 서로 기다리게 된다.
+        userAccountRepository.findByIdForUpdate(userId);
         userCreditRepository.findByIdForUpdate(userId);
         // 잠금을 얻은 뒤 다시 읽는다. 그 사이 CHECK_IN·CANCEL이 반영된 티켓은 여기서 빠진다.
         List<BookingHistory> overdue = bookingHistoryRepository
