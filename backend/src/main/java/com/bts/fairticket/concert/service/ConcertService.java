@@ -124,10 +124,10 @@ public class ConcertService {
         }
         long toEpoch = to == null ? clock.instant().getEpochSecond() : epochSecond(to);
         long fromEpoch = from == null ? toEpoch - (long) interval * DEFAULT_TREND_BUCKETS : epochSecond(from);
-        fromEpoch -= Math.floorMod(fromEpoch, interval);
         if (toEpoch <= fromEpoch) {
             throw new ApiException(ResponseCode.INVALID_QUERY_PARAMETER);
         }
+        fromEpoch -= Math.floorMod(fromEpoch, interval);
         long bucketCount = (toEpoch - fromEpoch + interval - 1) / interval;
         if (bucketCount > MAX_TREND_BUCKETS) {
             throw new ApiException(ResponseCode.INVALID_QUERY_PARAMETER);
