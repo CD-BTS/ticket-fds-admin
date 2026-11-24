@@ -42,7 +42,8 @@ class EntitySchemaMappingTests {
 	private static final List<Class<?>> ENTITIES = List.of(
 			UserAccount.class, BehaviorEvent.class, UserCredit.class,
 			CreditHistory.class, RiskAssessment.class, PolicyDecision.class,
-			com.bts.fairticket.concert.entity.Concert.class);
+			com.bts.fairticket.concert.entity.Concert.class,
+			com.bts.fairticket.risk.entity.RiskAssessmentCursor.class);
 
 	@Test
 	void mappingsMatchProvidedMySqlSchemaWithoutDatabaseConnection() throws Exception {
@@ -95,8 +96,8 @@ class EntitySchemaMappingTests {
 				}
 				assertEquals(columnCount, columns.size(), tableName + " columns");
 			}
-			assertEquals(7, tableCount);
-			assertEquals(7, tables.size());
+			assertEquals(8, tableCount);
+			assertEquals(8, tables.size());
 
 			Map<String, String> expectedIndexes = new TreeMap<>();
 			var indexMatcher = INDEX_PATTERN.matcher(sql);

@@ -110,20 +110,37 @@ class FeatureAggregationServiceTest {
 
         assertEquals(2, result.getBookingCount());
         assertEquals(30.0, result.getAvgBookingInterval(), 0.0001); // a1 시작(0초) → a2 시작(30초)
-        assertEquals(0.0, result.getBookingIntervalVariance(), 0.0001);
+        assertNull(result.getBookingIntervalVariance());           // 간격 1개 < 5
     }
 
     @Test
-    @DisplayName("시도 간격 평균·모분산을 밀리초 정밀도로 계산")
+    @DisplayName("시도 간격 평균·모분산을 밀리초 정밀도로 계산 (간격 5개 이상)")
     void calculate_attemptIntervalsWithMillis() {
-        UserCalculatedFeatures result = calculate(
-                attempt("a1", "STARTED", T0),
-                attempt("a2", "STARTED", T0.plusNanos(200_000_000)),   // +0.2초
-                attempt("a3", "STARTED", T0.plusNanos(600_000_000)));  // +0.4초
+        // 간격: 0.2, 0.4, 0.2, 0.4, 0.2, 0.4초 (시도 7건, 간격 6개)
+        long[] offsetsMillis = {0, 200, 600, 800, 1200, 1400, 1800};
+        BehaviorEvent[] events = new BehaviorEvent[offsetsMillis.length];
+        for (int i = 0; i < offsetsMillis.length; i++) {
+            events[i] = attempt("a" + i, "STARTED", T0.plusNanos(offsetsMillis[i] * 1_000_000));
+        }
+        UserCalculatedFeatures result = calculate(events);
 
-        assertEquals(3, result.getBookingCount());
-        assertEquals(0.3, result.getAvgBookingInterval(), 0.0001);        // (0.2 + 0.4) / 2
-        assertEquals(0.01, result.getBookingIntervalVariance(), 0.0001);  // ((0.2-0.3)^2 + (0.4-0.3)^2) / 2
+        assertEquals(7, result.getBookingCount());
+        assertEquals(0.3, result.getAvgBookingInterval(), 0.0001);        // 평균 0.3초
+        assertEquals(0.01, result.getBookingIntervalVariance(), 0.0001);  // 각 편차 ±0.1 → 모분산 0.01
+    }
+
+    @Test
+    @DisplayName("간격이 5개 미만이면 평균만 계산하고 분산은 null (시도 5건 → 간격 4개)")
+    void calculate_varianceRequiresFiveIntervals() {
+        BehaviorEvent[] five = new BehaviorEvent[5];
+        for (int i = 0; i < 5; i++) five[i] = attempt("b" + i, "STARTED", T0.plusSeconds(10L * i));
+        UserCalculatedFeatures result = calculate(five);
+        assertEquals(10.0, result.getAvgBookingInterval(), 0.0001);
+        assertNull(result.getBookingIntervalVariance());
+
+        BehaviorEvent[] six = new BehaviorEvent[6];
+        for (int i = 0; i < 6; i++) six[i] = attempt("c" + i, "STARTED", T0.plusSeconds(10L * i));
+        assertEquals(0.0, calculate(six).getBookingIntervalVariance(), 0.0001);
     }
 
     @Test

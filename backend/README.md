@@ -112,6 +112,18 @@ $env:DB_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host 'DB passwo
 
 JPA는 `ddl-auto=none`으로 테이블을 생성·변경·검증하지 않습니다. `open-in-view=false`이며 SQL 출력은 기본 비활성화입니다. 테이블은 `db/schema.sql`을 승인 후 수동 적용합니다. DB 접속 정보가 빠지거나 접속할 수 없으면 애플리케이션 시작에 실패할 수 있습니다.
 
+## AI 이상도 평가 연동 (#40)
+
+`AI_ENABLED=true`로 실행하면, 새 행동 이벤트가 들어온 사용자의 Feature 6개를 주기적으로 ticket-fds-ai `POST /predict/batch`에 보냅니다. 받은 이상 점수는 `risk_assessment`에 저장하고, 커밋 후 Credit을 다시 계산합니다. 기본값은 `false`라 AI 서버 없이도 기동합니다.
+
+```powershell
+$env:AI_ENABLED = 'true'
+$env:AI_BASE_URL = 'http://localhost:8000'   # ticket-fds-ai (uvicorn 또는 Docker)
+$env:AI_POLL_MS = '60000'
+```
+
+기존 DB는 먼저 `db/manual/062-create-risk-assessment-cursor.sql`을 적용합니다. 흐름, 재시도 규칙, 설정 전체는 [docs/ai-design.md](../docs/ai-design.md)를 참고하세요.
+
 ## 빌드 및 테스트
 
 DB가 없어도 실행 가능한 단위 테스트와 MVC 테스트:
