@@ -98,7 +98,7 @@ public class PolicyDecisionService {
             return new DecisionResult("RESTRICT", "극단적 이상 행동 및 최하위 신용 점수 감지 (예매 제한)");
         } else if (creditScore < 20 || anomalyScore >= 0.70) {
             return new DecisionResult("DELAY", "위험 사용자 판정: 이상 행동 또는 누적 신용 점수 미달 (대기열 후순위)");
-        } else if (creditScore < 40 || anomalyScore >= 0.40) {
+        } else if (creditScore < 40 || anomalyScore >= 0.50) { // 0.50 = AI 모델의 탐지 기준 (#60, 이전 0.40)
             return new DecisionResult("REQUIRE_CAPTCHA", "의심 사용자 판정: 추가 인증을 통한 자동화 여부 검증");
         } else {
             return new DecisionResult("ALLOW", "정상 사용자 판정: 일반 대기열 입장 허용");

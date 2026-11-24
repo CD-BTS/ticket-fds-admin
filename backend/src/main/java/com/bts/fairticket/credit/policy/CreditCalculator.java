@@ -9,7 +9,7 @@ public class CreditCalculator {
             long completedCount,       // A: 정상 관람 완료 횟수
             long noShowCount,          // N: 노쇼 횟수
             long autoCancelledCount,   // C_auto: 미입금 자동 취소 횟수
-            Double anomalyScore,       // S_anomaly: Isolation Forest 이상도 (0.0 ~ 1.0, null 가능)
+            Double anomalyScore,       // S_anomaly: Isolation Forest 이상도 (0.0 ~ 1.0, 0.5 이상이 탐지, null 가능)
             double rulePenalty         // 룰 기반 감점 합산 (최대 30점)
     ) {}
 
@@ -34,7 +34,9 @@ public class CreditCalculator {
 
         // 2. DynamicPenalty 산출
         double anomalyScore = (input.anomalyScore() != null) ? Math.max(0.0, Math.min(1.0, input.anomalyScore())) : 0.0;
-        double aiPenalty = anomalyScore * CreditPolicyConstants.WEIGHT_ANOMALY_SCORE;
+        // AI 감점은 탐지 기준(anomalyScore 0.5) 이상에서만 적용한다: 0.5 → 0점, 1.0 → 40점 (#60).
+        // 0.5 미만은 모델이 이상으로 판정하지 않은 구간이므로 감점하지 않는다.
+        double aiPenalty = CreditPolicyConstants.WEIGHT_ANOMALY_SCORE * Math.max(0.0, 2.0 * anomalyScore - 1.0);
         double rulePenalty = Math.min(CreditPolicyConstants.MAX_RULE_PENALTY, Math.max(0.0, input.rulePenalty()));
 
         double dynamicPenalty = Math.min(CreditPolicyConstants.MAX_TOTAL_PENALTY, aiPenalty + rulePenalty);
