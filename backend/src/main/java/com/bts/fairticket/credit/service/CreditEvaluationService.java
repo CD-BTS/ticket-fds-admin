@@ -42,12 +42,37 @@ public class CreditEvaluationService {
     private final CreditHistoryRepository creditHistoryRepository;
     private final CreditCalculator creditCalculator;
 
+    /**
+     * 관람 이력 변경(CHECK_IN · CANCEL · 노쇼)과 같은 순서(user_account → user_credit)로 행을 잠근 뒤에
+     * 관람 통계와 Credit을 읽는다 (#63). 잠금 없이 읽으면 그 사이 커밋된 관람 이력이 빠진 값으로
+     * Credit을 덮어쓸 수 있다. 이 메서드가 트랜잭션을 시작해야 잠금 뒤의 조회가 최신 값을 본다.
+     * 이미 다른 조회를 한 트랜잭션 안에서 호출하면(REPEATABLE READ) 이전 시점의 통계를 읽을 수 있다.
+     */
     @Transactional
     public EvaluationSummary evaluateAndApplyCredit(String userId, CreditEvaluationContext context) {
-        UserAccount user = userAccountRepository.findById(userId)
+        return evaluate(userId, context, null).orElseThrow();
+    }
+
+    /**
+     * AI 평가(assessmentId)가 저장된 뒤 그 평가의 룰 감점 입력값(context)으로 Credit을 다시 계산한다 (#63).
+     * 사용자 행을 잠근 뒤 최신 평가가 여전히 assessmentId인지 확인하고, 그 사이 더 새로운 평가가 저장됐다면
+     * 아무것도 바꾸지 않는다. 늦게 실행된 이전 평가의 콜백이 최신 이상 점수에 예전 IP 시도 수·간격 분산을
+     * 섞어 Credit을 덮어쓰지 않게 하기 위해서다. 더 새로운 평가는 자신의 콜백에서 Credit을 갱신한다.
+     *
+     * @return Credit을 다시 계산했으면 결과, 이전 평가의 콜백이라 건너뛰었으면 empty
+     */
+    @Transactional
+    public Optional<EvaluationSummary> evaluateAfterAssessment(String userId, CreditEvaluationContext context,
+            long assessmentId) {
+        return evaluate(userId, context, assessmentId);
+    }
+
+    private Optional<EvaluationSummary> evaluate(String userId, CreditEvaluationContext context,
+            Long expectedLatestAssessmentId) {
+        UserAccount user = userAccountRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ApiException(ResponseCode.USER_NOT_FOUND));
 
-        UserCredit userCredit = userCreditRepository.findById(userId)
+        UserCredit userCredit = userCreditRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ApiException(ResponseCode.CREDIT_NOT_FOUND));
 
         int oldScore = userCredit.getCreditScore();
@@ -64,6 +89,13 @@ public class CreditEvaluationService {
         // 2. 최신 AI 이상도 조회
         Optional<RiskAssessment> latestRisk =
                 riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId);
+        if (expectedLatestAssessmentId != null
+                && !latestRisk.map(RiskAssessment::getAssessmentId).filter(expectedLatestAssessmentId::equals).isPresent()) {
+            // 아직 아무것도 바꾸지 않았다. 잠금 뒤에 읽었으므로 같은 사용자의 다른 평가 반영과 순서가 섞이지 않는다.
+            log.info("User {} credit evaluation skipped: assessment {} is no longer the latest",
+                    userId, expectedLatestAssessmentId);
+            return Optional.empty();
+        }
         Double anomalyScore = latestRisk.map(RiskAssessment::getAnomalyScore).orElse(null);
 
         // 3. 룰 기반 감점 계산 (카드 공유, IP 집중도, 요청 분산)
@@ -102,7 +134,7 @@ public class CreditEvaluationService {
         log.info("User {} credit evaluated: {} -> {} (change: {}), grade: {}", 
                 userId, oldScore, newScore, changeAmount, result.grade());
 
-        return new EvaluationSummary(
+        return Optional.of(new EvaluationSummary(
                 userId,
                 oldScore,
                 newScore,
@@ -111,7 +143,7 @@ public class CreditEvaluationService {
                 result.baseCredit(),
                 result.dynamicPenalty(),
                 result.penaltyPolicy()
-        );
+        ));
     }
 
     /**

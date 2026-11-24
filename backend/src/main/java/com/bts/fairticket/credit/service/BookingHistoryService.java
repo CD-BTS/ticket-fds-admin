@@ -1,16 +1,21 @@
 package com.bts.fairticket.credit.service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +25,9 @@ import com.bts.fairticket.concert.dto.ConcertResponse;
 import com.bts.fairticket.concert.repository.ConcertRepository;
 import com.bts.fairticket.credit.entity.BookingHistory;
 import com.bts.fairticket.credit.entity.BookingHistory.BookingStatus;
+import com.bts.fairticket.credit.entity.UserCard;
 import com.bts.fairticket.credit.repository.BookingHistoryRepository;
+import com.bts.fairticket.credit.repository.UserCardRepository;
 import com.bts.fairticket.credit.repository.UserCreditRepository;
 import com.bts.fairticket.user.entity.UserAccount;
 
@@ -43,6 +50,8 @@ public class BookingHistoryService {
     static final String REASON_LATE_CHECK_IN = "지연 도착한 CHECK_IN으로 노쇼 정정";
     static final String REASON_LATE_CANCEL = "지연 도착한 CANCEL로 노쇼 정정";
 
+    // 결제 식별자 정규화: 앞뒤의 공백(U+0020), 탭, CR, LF. 백필 SQL의 REGEXP_REPLACE와 같은 문자 집합이다.
+    private static final Pattern EDGE_WHITESPACE = Pattern.compile("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$");
     private static final int MAX_TICKET_ID_LENGTH = 100;
     private static final int MAX_CONCERT_ID_LENGTH = 50;
 
@@ -50,14 +59,68 @@ public class BookingHistoryService {
     private final UserCreditRepository userCreditRepository;
     private final ConcertRepository concertRepository;
     private final CreditEvaluationService creditEvaluationService;
+    private final UserCardRepository userCardRepository;
 
     @Transactional
     public void apply(BehaviorEvent event) {
+        if ("BOOKING".equals(event.getEventType())) {
+            recordPaymentCard(event);
+        }
         switch (event.getEventType()) {
             case "BOOKING" -> applyBooking(event);
             case "CANCEL" -> applyCancel(event);
             case "CHECK_IN" -> applyCheckIn(event);
             default -> { }
+        }
+    }
+
+    /**
+     * BOOKING의 결제 식별자(metadata.paymentIdentifier)를 user_card에 남긴다 (#63).
+     * Credit의 카드 공유 룰 감점(같은 카드 해시를 가진 고유 계정 수)이 이 테이블을 읽는다.
+     * 카드 해시에 serviceId가 들어가므로 다른 서비스의 같은 식별자와 섞이지 않는다({@link #cardHash}).
+     * 같은 사용자가 같은 카드로 다시 결제하면 행을 늘리지 않고 마지막 사용 시각만 바꾼다.
+     * 이벤트 등록이 사용자 단위로 직렬화되어 있어(user_account 행 잠금) 같은 사용자의 중복 행이 생기지 않는다.
+     * 결제 식별자가 없으면 아무것도 하지 않는다.
+     */
+    private void recordPaymentCard(BehaviorEvent event) {
+        String cardHash = cardHash(event.getServiceId(), event.getMetadata());
+        if (cardHash == null) {
+            return;
+        }
+        UserAccount user = event.getUser();
+        LocalDateTime usedAt = seconds(event.getOccurredAt());
+        List<UserCard> existing = userCardRepository.findByUser_UserIdAndCardHash(user.getUserId(), cardHash);
+        if (existing.isEmpty()) {
+            // 새 카드의 마지막 사용 시각은 처리 시각이 아니라 이 예매가 발생한 시각이다.
+            userCardRepository.save(new UserCard(user, cardHash, usedAt));
+        } else {
+            existing.get(0).markUsed(usedAt);
+        }
+    }
+
+    /**
+     * 카드 해시: SHA-256("{serviceId의 UTF-8 바이트 수}:{serviceId}:{결제 식별자}")의 소문자 16진수 64자.
+     * serviceId 길이를 앞에 붙여, serviceId나 식별자에 ':'가 들어 있어도 서로 다른 (서비스, 식별자) 조합이
+     * 같은 입력 문자열이 되지 않는다. 결제 식별자는 앞뒤의 공백·탭·CR·LF만 떼어낸다.
+     * db/manual/063-backfill-user-card-from-booking-events.sql이 같은 규칙으로 계산하므로 함께 바꿔야 한다.
+     *
+     * @return 결제 식별자가 문자열이 아니거나 떼어낸 뒤 비어 있으면 null
+     */
+    static String cardHash(String serviceId, Map<String, Object> metadata) {
+        if (serviceId == null || metadata == null || !(metadata.get("paymentIdentifier") instanceof String raw)) {
+            return null;
+        }
+        String identifier = EDGE_WHITESPACE.matcher(raw).replaceAll("");
+        if (identifier.isEmpty()) {
+            return null;
+        }
+        try {
+            int serviceIdBytes = serviceId.getBytes(StandardCharsets.UTF_8).length;
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest((serviceIdBytes + ":" + serviceId + ":" + identifier).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
         }
     }
 
