@@ -162,8 +162,9 @@ public class RiskAssessmentService {
 			// 같은 사용자의 결과 반영을 직렬화한다. 이벤트 등록 · Credit 평가와 같은 user_account 행 잠금이다.
 			var user = users.findByIdForUpdate(p.userId()).orElseThrow();
 			RiskAssessmentCursor cursor = cursors.findById(p.userId()).orElse(null);
-			if (!sameAsSeen(cursor, p)) {
-				log.info("AI assessment discarded: cursor moved since selection (user={})", p.userId());
+			if (!sameAsSeen(cursor, p)
+					|| (cursor != null && checkedAt.isBefore(cursor.getCheckedAt()))) {
+				log.info("AI assessment discarded: cursor changed or newer cutoff already applied (user={})", p.userId());
 				return false;
 			}
 			if (OK.equals(finalStatus)) {
