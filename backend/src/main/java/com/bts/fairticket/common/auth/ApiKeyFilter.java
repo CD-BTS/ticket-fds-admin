@@ -37,13 +37,11 @@ public class ApiKeyFilter extends OncePerRequestFilter {
 	protected boolean shouldNotFilter(HttpServletRequest request) {
 		String path = new UrlPathHelper().getPathWithinApplication(request);
 
-		if (path.matches("^/api/v1/users/[^/]+/credit(-history)?$")) {
-       		return true;    
-    	}
-
+		// Credit 조회(/users/{id}/credit, /credit-history)도 다른 사용자 API와 같이 서비스 키로 인증한다 (#67).
 		return !path.equals("/api/v1/users") && !path.startsWith("/api/v1/users/")
 				&& !path.equals("/api/v1/concerts") && !path.startsWith("/api/v1/concerts/")
 				&& !path.equals("/api/v1/events") && !path.startsWith("/api/v1/events/")
+				&& !path.equals("/api/v1/policy-applications")
 				&& !isAdminPath(path);
 	}
 

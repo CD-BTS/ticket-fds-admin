@@ -40,7 +40,14 @@ class CreditApiIntegrationTest {
     @Autowired
     private CreditHistoryRepository creditHistoryRepository;
 
-    private static final String ADMIN_TOKEN = "Bearer admin-test-key";
+    // #67: Credit API는 임의의 Bearer 값이 아니라 서비스 키(X-API-Key)로 인증한다.
+    private static final String SERVICE_KEY = com.bts.fairticket.user.ApiKeyTestSupport.randomKey();
+
+    @org.springframework.test.context.DynamicPropertySource
+    static void keys(org.springframework.test.context.DynamicPropertyRegistry registry) {
+        registry.add("BTS_API_KEY_HASHES", () ->
+                com.bts.fairticket.user.ApiKeyTestSupport.configuration(java.util.Map.of("service-1", SERVICE_KEY)));
+    }
 
 @Test
     @DisplayName("[통합] 실제 데이터 적재 후 GET /credit 호출 시 올바른 응답을 반환한다")
@@ -53,7 +60,7 @@ class CreditApiIntegrationTest {
         userCreditRepository.saveAndFlush(new UserCredit(savedUser));
 
         mockMvc.perform(get("/api/v1/users/{userId}/credit", savedUser.getUserId())
-                        .header("Authorization", ADMIN_TOKEN)
+                        .header("X-API-Key", SERVICE_KEY)
                         .accept(MediaType.APPLICATION_JSON))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -73,7 +80,7 @@ class CreditApiIntegrationTest {
         creditHistoryRepository.save(new CreditHistory(user, null, 60, 50, "추가 취소 페널티"));
 
         mockMvc.perform(get("/api/v1/users/{userId}/credit-history", user.getUserId())
-                        .header("Authorization", ADMIN_TOKEN)
+                        .header("X-API-Key", SERVICE_KEY)
                         .param("page", "0")
                         .param("size", "10")
                         .accept(MediaType.APPLICATION_JSON))
