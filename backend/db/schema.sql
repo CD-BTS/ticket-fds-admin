@@ -251,7 +251,7 @@ ALTER TABLE user_credit ADD CONSTRAINT fk_credit_latest_calculation
 -- behavior_event와 분리되어 있어 AI 평가 대상 선정, Feature, Credit 산출에 쓰이지 않는다.
 CREATE TABLE IF NOT EXISTS policy_application (
     application_id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    service_id VARCHAR(50) NOT NULL,
+    service_id VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     external_application_id VARCHAR(100) NOT NULL COMMENT '외부 서비스의 멱등 키',
     user_id VARCHAR(50) NOT NULL,
     decision_id BIGINT NOT NULL COMMENT '적용한 정책 결정',
