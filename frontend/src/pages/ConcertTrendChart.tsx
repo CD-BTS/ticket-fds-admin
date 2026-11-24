@@ -55,7 +55,9 @@ export default function ConcertTrendChart({ session, concertId }: Props) {
         setTrend(null); setLoading(false); setError('시작 시각이 종료 시각보다 앞서야 합니다.')
         return
       }
-      const buckets = Math.ceil((new Date(to).getTime() - new Date(from).getTime()) / 1000 / customInterval)
+      const intervalMs = customInterval * 1000
+      const alignedFrom = Math.floor(new Date(from).getTime() / intervalMs) * intervalMs
+      const buckets = Math.ceil((new Date(to).getTime() - alignedFrom) / intervalMs)
       if (buckets > MAX_BUCKETS) {
         setTrend(null); setLoading(false)
         setError(`구간이 ${buckets}개로 나뉩니다. 최대 ${MAX_BUCKETS}개까지 조회할 수 있으니 범위를 줄이거나 간격을 늘려 주세요.`)
