@@ -21,12 +21,15 @@ npm run dev
 | API | 화면 |
 |---|---|
 | `GET /api/v1/admin/summary?serviceId=` | 연결 확인, 등급 목록, 상단 요약 |
-| `GET /api/v1/admin/concerts?serviceId=` | 공연 목록 (정렬·페이지네이션) |
-| `GET /api/v1/admin/concerts/{concertId}?serviceId=` | 공연 상세 (예매 시도 수, 시도 사용자 수) |
+| `GET /api/v1/admin/concerts?serviceId=` | 공연 목록 (정렬·페이지네이션, 공연별 이상탐지 사용자 수) |
+| `GET /api/v1/admin/concerts/{concertId}?serviceId=` | 공연 상세 (예매 시도·성공·실패·미종료 건수, 이상탐지 인원, 예상 제재 대상, 실제 제재 적용 인원) |
+| `GET /api/v1/admin/concerts/{concertId}/trends?serviceId=` | 공연 상세의 시간대별 추이 그래프 (60초 이상 간격, 조회 범위 선택) |
 | `GET /api/v1/admin/concerts/{concertId}/users?serviceId=` | 공연별 사용자 (등급 필터, Credit 정렬) |
 | `GET /api/v1/admin/users` | 전체 사용자 목록 (ID·등급·상태·Credit 범위 필터, Credit 정렬) |
-| `GET /api/v1/admin/users/{userId}` | 사용자 상세 + 최근 정책 결정 |
-| `GET /api/v1/admin/users/{userId}/assessments` | 위험 평가 이력 |
+| `GET /api/v1/admin/users/{userId}` | 사용자 상세 + 최근 정책 결정, 평가 상태, 예상 정책, 최신 Credit 산출 근거 |
+| `GET /api/v1/admin/users/{userId}/credit-history` | 사용자 상세의 Credit 변경 이력과 산출 근거 |
+| `GET /api/v1/admin/users/{userId}/assessments` | 성공한 평가 이력과 평가 당시 Feature |
+| `GET /api/v1/admin/users/{userId}/assessment-attempts` | AI 평가 시도 이력 (데이터 부족 · 평가 불가 포함) |
 | `GET /api/v1/admin/users/{userId}/events` | 사용자 상세의 예매 목록 (`BOOKING_ATTEMPT`를 `attemptId`로 묶어 성공/실패·최종 단계 계산, 최근 300건까지) |
 | `GET /api/v1/admin/users/{userId}/features` | 사용자 상세의 Feature별 계산값 (AI 입력 6개) |
 
@@ -41,18 +44,30 @@ npm run dev
                 사용자 목록 → 사용자 조회
 ```
 
-## 아직 백엔드에 없어 표시하지 못하는 항목
+## 값이 없을 때의 표시
 
-임의의 값을 만들어 보여주지 않고 "—" 또는 "미제공"으로 표시합니다.
+임의의 값을 만들어 보여주지 않습니다. 0과 "없음"을 구분합니다.
 
-- 공연별 이상 탐지·제재 건수, 평균 Credit
-- 공연별 시계열(10초 단위 추이) 통계 — 그래프 영역은 안내만 표시
-- 점수 산출 근거(Credit 변경 이력)의 관리자용 조회 API
-- "정상·의심·위험" 계정 등급 (현재 화면의 등급은 Credit 등급 `tier` 값)
-- 이상 점수 기준 검색·정렬 (목록 API 정렬은 `createdAt`, `userId`, `creditScore`만 지원)
+| 상황 | 표시 |
+|---|---|
+| 외부 서비스가 정책 적용 기록을 보낸 적이 없음 (`sanctions.recorded = false`) | 제재 적용 "기록 없음" (0명이 아님) |
+| 산출 근거를 저장하기 전에 계산된 Credit (`latestCalculation`, 이력의 `calculation`이 null) | "기록 없음" / "산출 근거 기록 없음" |
+| 평가 당시 Feature를 저장하기 전의 평가 (`features`가 null) | "기록 없음" |
+| AI에 null로 보낸 Feature 값 | "계산 불가" |
+| 성공한 AI 평가가 없는 사용자 (`anomalyScore`가 null) | 이상 점수 "—", 평가 상태 "미평가" |
+| 선택한 구간에 추이 데이터가 없음 | 그래프 대신 안내 문구 |
+
+화면의 등급은 Credit 등급(`tier`)입니다. AI 이상탐지(이상 점수 0.5 이상), 예상 정책, 실제 정책 결정, 실제 제재 적용은 각각 따로 표시합니다.
+
+## 아직 화면에 연결하지 않은 백엔드 기능
+
+- 사용자 목록의 이상 점수 정렬 · 범위 필터, 평가 여부 필터, ID 부분 검색 (`sort=anomalyScore`, `minAnomalyScore`, `assessed`, `keyword`)
+- 공연 목록의 서버 검색 (`name`)
+- 요약의 평가 완료 · 미평가 · 이상탐지 인원, 예상 정책별 인원
+- 공연 상세의 실패 유형별 건수, 예매 · 취소 · 입장 건수, 평균 Credit
 
 ## 참고
 
-- 사용자·평가 시각(`LocalDateTime`)은 서버가 타임존 없이 내려주므로 그대로, 공연·이벤트·정책 시각은 오프셋을 반영해 브라우저 시간대로 표시합니다.
-- 공연 목록의 검색 입력은 현재 페이지 안에서만 걸러냅니다(서버에 검색 파라미터 없음).
+- 사용자 목록의 생성 · 평가 시각(`LocalDateTime`)은 서버가 타임존 없이 내려주므로 그대로 표시합니다. 공연 · 이벤트 · 정책 · Credit 이력 시각과 사용자 상세의 평가 시각은 UTC로 해석해 브라우저 시간대로 표시합니다.
+- 공연 목록의 검색 입력은 불러온 목록 안에서만 걸러냅니다(서버 검색 `name`은 아직 연결하지 않음).
 - 이상 점수는 공연별 평가가 아니라 사용자 전체의 최신 평가입니다.
