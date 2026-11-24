@@ -44,6 +44,8 @@ Demo ──(행동 이벤트)──▶ behavior_event
 - **중복 실행 방지:** AI 응답을 저장하기 직전에 `user_account` 행을 잠그고 진행 위치가 후보 선정 때와 같은지 확인합니다. 그 사이 다른 실행이 먼저 반영했다면 결과를 버립니다(평가 저장, 진행 위치 갱신, Credit 갱신 모두 하지 않음). AI 호출 중에는 DB 잠금을 잡지 않습니다(#63).
 - **Credit 갱신 잠금:** Credit 평가(AI 평가 반영, 수동 평가)는 관람 이력 변경과 같은 순서(`user_account` → `user_credit`)로 행을 잠근 뒤 관람 통계를 읽습니다(#63).
 - **진행 위치 기록:** OK뿐 아니라 INSUFFICIENT_DATA·INVALID도 기록합니다. 데이터가 부족한 사용자를 매 주기 반복 호출하지 않기 위해서입니다. 새 이벤트가 오면 다시 평가합니다.
+- **평가 시도 이력(#67):** 평가 결과를 반영할 때마다 `risk_assessment_attempt`에 1행을 남깁니다(OK, INSUFFICIENT_DATA, INVALID). `risk_assessment`는 계속 성공한 평가만 담으므로 Credit 산출과 정책 판정이 읽는 최신 점수는 영향받지 않고, 데이터 부족 · INVALID 시도가 기존 점수나 Credit을 덮어쓰지 않습니다. 잠금과 진행 위치 확인 뒤에 쓰므로 폐기된 결과는 이력에도 남지 않습니다. AI 서버 장애 · 타임아웃은 기록하지 않습니다.
+- **평가 당시 Feature(#67):** AI 요청에 넣은 Feature 6개를 그대로 저장합니다. 성공한 평가는 `risk_assessment`에, 점수 없이 끝난 시도는 `risk_assessment_attempt`에 둡니다(중복 저장하지 않음). 저장할 때 다시 계산하지 않고 결측값은 null입니다.
 - **AI 서버 장애:** 네트워크 오류, 타임아웃, 4xx/5xx가 나면 진행 위치를 바꾸지 않습니다. 다음 주기에 그대로 다시 시도합니다.
 - **처리 단위:** 사용자별로 트랜잭션을 따로 엽니다. 한 사용자의 저장 실패가 다른 사용자에게 영향을 주지 않습니다.
 - **응답 검증:** 응답의 userId가 요청과 다르거나, 점수가 0~1을 벗어나거나, `modelVersion`이 비었거나 30자를 넘으면 INVALID로 처리하고 저장하지 않습니다.
@@ -52,6 +54,7 @@ Demo ──(행동 이벤트)──▶ behavior_event
 - `@TransactionalEventListener(AFTER_COMMIT)`와 REQUIRES_NEW 트랜잭션을 씁니다. 평가가 커밋된 뒤에만 Credit을 바꿉니다.
 - 콜백은 평가 ID를 함께 넘기고, 사용자 행을 잠근 뒤 그 평가가 여전히 최신일 때만 Credit을 바꿉니다. 더 새로운 평가가 이미 저장됐다면 건너뜁니다(#63). 수동 평가 API는 이 확인 없이 항상 계산합니다.
 - Credit 재산출이 실패해도 평가는 되돌리지 않습니다. 다음 평가 때 다시 반영됩니다.
+- Credit을 계산할 때마다 산출 근거를 `credit_calculation`에 남깁니다(#67). Credit 갱신, 이력, 산출 근거는 한 트랜잭션입니다. 관람 이력 변경은 저장된 동적 감점을 재사용하므로 감점 상세 없이 원본 평가 행을 가리킵니다.
 - 룰 감점의 `intervalVariance`에는 평가에 쓴 `bookingIntervalVariance`를 넘깁니다.
 - 룰 감점의 `recentIpAttemptCount`에는 같은 분석 시각 기준 최근 10분 동안 같은 IP에서 들어온 고유 예매 시도 수를 넘깁니다(#63). `BOOKING_ATTEMPT` 이벤트의 `metadata.ipAddress`만 보고, 같은 서비스의 모든 계정을 합쳐 `attemptId` 기준으로 셉니다. 사용자가 그 10분 안에 쓴 IP가 여러 개면 가장 큰 값입니다. IP가 실린 시도 이벤트가 없으면 null(감점 없음)입니다. AI Feature `ipBookingDensity`(30일, 예매 완료 기준 고유 계정 수)와는 다른 값이며 AI 요청에는 넣지 않습니다.
 - 카드 공유 룰 감점은 `user_card`를 읽습니다. `BOOKING` 이벤트가 등록될 때 `metadata.paymentIdentifier`를 `SHA-256("{serviceId의 UTF-8 바이트 수}:{serviceId}:{결제 식별자}")` 해시로 `user_card`에 남깁니다(#63). 결제 식별자는 앞뒤의 공백·탭·CR·LF만 떼어내고, 비어 있거나 문자열이 아니면 기록하지 않습니다. 같은 사용자의 반복 결제는 1행이고 `last_used_at`은 가장 최근 예매의 발생 시각입니다. 해시에 serviceId와 그 길이가 들어가 서비스 간에 섞이지 않습니다. #63 이전 이벤트는 `db/manual/063-backfill-user-card-from-booking-events.sql`로 채웁니다.

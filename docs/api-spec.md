@@ -847,3 +847,247 @@ Credit         = round(max(0, min(100, BaseCredit − DynamicPenalty)))   변경
 | 4 | 그 외 | `ALLOW` |
 
 `anomalyScore`는 매크로일 확률이 아니며, 모델 버전이 다르면 값의 눈금이 다릅니다. 현재 정책과 Credit 계산은 `model_version`을 구분하지 않고 최신 평가를 읽습니다. AI 연동 시 처리해야 할 사항은 위 보고서의 "후속 연동 확인 사항"에 정리했습니다.
+
+## 관리자 조회 API 개선 및 저장 구조 (#67)
+
+AI 평가, Credit, 위험 정책은 서로 다른 개념이며 응답에서 필드를 나눠 제공합니다.
+
+| 개념 | 필드 | 의미 |
+|---|---|---|
+| AI 이상탐지 | `anomalyScore`, `anomalyUsers` 등 | 가장 최근에 **성공한** AI 평가의 점수. 0.5 이상이 탐지. 평가가 없으면 null(0이 아님) |
+| 평가 상태 | `assessmentStatus` | 가장 최근 평가 **시도**의 상태: `OK`, `INSUFFICIENT_DATA`, `INVALID`, `NOT_EVALUATED` |
+| Credit 등급 | `tier` | Credit 점수 구간. AI 이상탐지나 정책과 별개 |
+| 예상 정책 | `expectedPolicy`, `usersByExpectedPolicy` | 현재 Credit과 최신 점수로 지금 요청하면 받을 조치. 조회용 계산이며 기록을 만들지 않음 |
+| 정책 결정 | `latestPolicy` | 외부 서비스의 요청으로 실제 내려진 결정(`policy_decision`) |
+| 실제 제재 | `sanctions` | 외부 서비스가 실제로 적용했다고 보고한 정책(`policy_application`) |
+
+관리자 조회 API는 모두 읽기 전용입니다. Credit, 평가, 정책 결정을 만들거나 바꾸지 않습니다.
+인증과 서비스 범위는 기존과 같습니다(관리자 키, `AdminScope`. 범위 밖 사용자는 404, 범위 밖 `serviceId`는 403).
+
+### 시각 표기
+
+- #67에서 추가한 응답 필드와 신규 API의 시각은 UTC이며 `Z`가 붙습니다.
+- `GET /api/v1/users/{userId}/credit`의 `updatedAt`, `/credit-history`의 `createdAt`, 정책 결정 응답의 `decidedAt`은
+  이전에 UTC 값을 변환 없이 `+09:00`으로 표기했습니다. 이제 `Z`로 표기합니다. **같은 문자열을 KST로 해석하던 호출자는
+  값이 9시간 달라 보이므로 확인이 필요합니다**(실제 시각이 바뀐 것이 아니라 표기가 맞게 바뀐 것입니다).
+- 기존 관리자 API의 오프셋 없는 시각(`createdAt`, `lastAssessedAt`, `assessedAt`, `calculatedAt`)은 호환성을 위해 그대로 둡니다. 값은 UTC입니다.
+
+### 기존 Credit API 인증 변경
+
+`GET /api/v1/users/{userId}/credit`, `GET /api/v1/users/{userId}/credit-history`
+
+- 이전: API 키 필터를 거치지 않고 `Authorization: Bearer <아무 값>`이면 통과했습니다. 서비스 범위 검사도 없었습니다.
+- 이후: 다른 사용자 API와 같이 **서비스 키 `X-API-Key`**로 인증하고, 그 서비스에 속한 사용자만 조회합니다.
+
+| 요청 | 응답 |
+|---|---|
+| `X-API-Key` 없음(Bearer만 있음), 잘못된 키 | 401 `UNAUTHORIZED` |
+| 다른 서비스의 사용자 | 404 `USER_NOT_FOUND` |
+| 관리자 키 | 403 `FORBIDDEN` (관리자는 아래 관리자용 API 사용) |
+
+`Authorization: Bearer`로 호출하던 클라이언트는 `X-API-Key`로 바꿔야 합니다. ticket-fds-demo-ticketing과 관리자 프런트엔드는 이 두 API를 호출하지 않습니다.
+
+### GET /api/v1/admin/users/{userId}/credit-history (신규)
+
+Credit 변경 이력과 산출 근거. 파라미터는 `page`(기본 0), `size`(기본 20, 최대 100), `startDate`, `endDate`(UTC 날짜 `yyyy-MM-dd`, 둘 다 그날 포함)입니다. 최신순입니다.
+
+```json
+{"content":[{"historyId":73,"eventId":null,"scoreBefore":50,"scoreAfter":20,"reason":"AI 이상도 평가 반영",
+  "createdAt":"2026-11-24T13:07:12Z",
+  "calculation":{"calculationId":41,"historyId":73,"kind":"EVALUATION","assessmentId":88,"sourceCalculationId":null,
+    "completedCount":0,"noShowCount":0,"autoCancelledCount":0,
+    "anomalyScore":0.75,"recentIpAttemptCount":5,"intervalVariance":0.5,"cardSharedAccounts":0,
+    "baseCredit":50.0,"aiPenalty":20.0,"cardPenalty":0.0,"ipPenalty":5.0,"variancePenalty":5.0,
+    "rulePenaltyRaw":10.0,"rulePenalty":10.0,"dynamicPenalty":30.0,"rawCredit":20.0,
+    "scoreBefore":50,"scoreAfter":20,"tier":"SUSPICIOUS","reason":"AI 이상도 평가 반영","createdAt":"2026-11-24T13:07:12Z"}}],
+ "page":0,"size":20,"totalElements":1,"totalPages":1,"hasNext":false}
+```
+
+- `calculation`은 그 변경을 만든 **저장된** 산출 근거입니다. #67 이전 이력은 `null`이며 다시 계산해 채우지 않습니다.
+- 읽는 법: `baseCredit - dynamicPenalty = rawCredit` → 0~100으로 제한하고 반올림 → `scoreAfter`.
+  `dynamicPenalty = min(70, aiPenalty + rulePenalty)`, `rulePenalty = min(30, rulePenaltyRaw)`,
+  `rulePenaltyRaw = cardPenalty + ipPenalty + variancePenalty`.
+- `kind`가 `ATTENDANCE`(관람 이력 변경)이면 감점을 새로 계산하지 않고 저장된 `dynamicPenalty`를 재사용한 것입니다.
+  감점 상세와 룰 입력값은 `null`이고, 그 감점을 계산한 평가는 `sourceCalculationId`가 가리킵니다(#67 이전 감점이면 `null`).
+- Credit을 계산할 때마다 산출 근거가 1건 생깁니다. 점수가 그대로여도 생깁니다.
+
+### GET /api/v1/admin/users/{userId}/assessment-attempts (신규)
+
+AI 평가 시도 이력. 성공한 평가뿐 아니라 데이터 부족 · INVALID로 끝난 시도도 최신순으로 돌려줍니다. `page`, `size`, `sort`(`attemptId,asc|desc`).
+
+```json
+{"content":[
+  {"attemptId":12,"status":"INSUFFICIENT_DATA","reason":"AI가 데이터 부족으로 판정하지 않았습니다 (bookingCount=0).",
+   "modelVersion":"fds-if-v4.0.0","calculatedAt":"2026-11-24T05:01:00Z","createdAt":"2026-11-24T05:01:01Z",
+   "assessmentId":null,"anomalyScore":null,
+   "features":{"bookingCount":0,"avgBookingInterval":null,"bookingIntervalVariance":null,"cancelRate":null,"cardReuseCount":1,"ipBookingDensity":1}},
+  {"attemptId":11,"status":"OK","reason":null,"modelVersion":"fds-if-v4.0.0","calculatedAt":"2026-11-24T05:00:00Z",
+   "createdAt":"2026-11-24T05:00:01Z","assessmentId":88,"anomalyScore":0.75,
+   "features":{"bookingCount":2,"avgBookingInterval":30.0,"bookingIntervalVariance":null,"cancelRate":null,"cardReuseCount":1,"ipBookingDensity":1}}],
+ "page":0,"size":20,"totalElements":2,"totalPages":1,"hasNext":false}
+```
+
+- `OK`가 아니면 `anomalyScore`와 `assessmentId`는 `null`입니다. 평가 불가를 0점이나 정상으로 바꾸지 않습니다.
+- `features`는 그 시도에서 **AI에 실제로 보낸 값**입니다. 결측값은 `null`입니다.
+- AI 서버 장애 · 타임아웃은 평가 상태가 아니므로 기록하지 않습니다(다음 주기에 재시도).
+- #67 이전에 평가된 사용자는 시도 이력이 없습니다. 이때 성공한 평가가 있으면 상태는 `OK`로 봅니다.
+
+### GET /api/v1/admin/users/{userId}/assessments (확장)
+
+각 평가에 `features`(평가 당시 AI에 보낸 Feature 6개)가 추가됐습니다. #67 이전 평가는 `features: null`입니다.
+`GET /api/v1/admin/users/{userId}/features`는 지금까지와 같이 **조회 시점**에 계산한 값을 돌려줍니다.
+
+### GET /api/v1/admin/users, /api/v1/admin/concerts/{concertId}/users (확장)
+
+추가 파라미터:
+
+| 파라미터 | 설명 |
+|---|---|
+| `sort=anomalyScore,asc\|desc` | 최신 이상 점수 정렬. 미평가 사용자는 방향과 관계없이 뒤에 옵니다 |
+| `minAnomalyScore`, `maxAnomalyScore` | 0~1. 미평가 사용자는 범위 조건에서 빠집니다(0으로 보지 않음). min > max면 400 |
+| `assessed=true\|false` | 성공한 평가가 있는 / 없는 사용자 |
+| `keyword` | `userId` 또는 `externalUserId` 부분 일치. `%`, `_`는 문자 그대로 찾습니다 |
+
+각 사용자에 `assessmentStatus`가 추가됐습니다. 검색 · 정렬 · 페이지 계산은 모두 DB에서 합니다.
+`tier`, `minCreditScore`, `maxCreditScore` 등 기존 파라미터는 그대로입니다.
+
+### GET /api/v1/admin/users/{userId} (확장)
+
+기존 `user`, `latestPolicy`에 다음이 추가됐습니다.
+
+```json
+{"user":{"...":"..."},"latestPolicy":null,
+ "assessmentStatus":"INVALID",
+ "latestAttempt":{"attemptId":13,"status":"INVALID","reason":"features.bookingCount는 null일 수 없습니다.","...":"..."},
+ "expectedPolicy":"DELAY","dynamicPenalty":20.0,
+ "latestCalculation":{"kind":"EVALUATION","aiPenalty":20.0,"...":"..."}}
+```
+
+`user.anomalyScore`는 최신 **성공** 평가의 점수이고 `assessmentStatus`는 최신 **시도**의 상태입니다. 둘은 다를 수 있습니다.
+
+### GET /api/v1/admin/summary (확장)
+
+추가 필드(모두 고유 사용자 수):
+
+| 필드 | 정의 |
+|---|---|
+| `assessedUsers`, `unassessedUsers` | 성공한 AI 평가가 있는 / 없는 사용자 |
+| `anomalyUsers` | 최신 이상 점수가 0.5 이상인 사용자. 미평가 사용자는 넣지 않음 |
+| `insufficientDataUsers` | 가장 최근 평가 시도가 `INSUFFICIENT_DATA`인 사용자 |
+| `usersByTierRatio` | Credit 등급별 비율(0~1) |
+| `usersByExpectedPolicy` | 예상 조치별 사용자 수(`ALLOW`, `REQUIRE_CAPTCHA`, `DELAY`, `RESTRICT`) |
+| `expectedSanctionUsers` | 그중 `ALLOW`가 아닌 사용자 수 |
+| `sanctions` | 실제 제재 적용 통계(아래) |
+
+### sanctions — 실제 제재 적용 통계
+
+```json
+{"recorded":true,"appliedUserCount":2,
+ "byPolicy":{"REQUIRE_CAPTCHA":{"userCount":2,"applicationCount":3},
+             "DELAY":{"userCount":0,"applicationCount":0},"RESTRICT":{"userCount":0,"applicationCount":0}},
+ "captcha":{"challenged":3,"passed":1,"failed":1}}
+```
+
+| 필드 | 집계 기준 |
+|---|---|
+| `recorded` | 그 서비스가 정책 적용 기록을 한 번이라도 보냈는지. `false`면 "제재 없음"이 아니라 "기록 없음"이고 나머지는 `null` |
+| `appliedUserCount` | 제재가 실제로 적용된 **고유 사용자** 수. 정책별 사용자 수의 합이 아님 |
+| `byPolicy.*.userCount` | 그 정책이 적용된 고유 사용자 수 |
+| `byPolicy.*.applicationCount` | 그 정책의 적용 횟수 = **고유 정책 결정** 수. CAPTCHA 요구와 그 통과 · 실패 기록은 같은 결정이므로 1회 |
+| `captcha` | CAPTCHA 인증 결과(고유 결정 수). 제재 적용 횟수와 별개의 통계 |
+
+연동 전 서비스와 #67 이전 기간은 기록이 없습니다. 과거 제재 인원을 추정하지 않습니다.
+
+### GET /api/v1/admin/concerts (확장)
+
+- `name`: 공연 이름 부분 검색(대소문자 구분 없음). DB에서 걸러 `totalElements`에 반영됩니다.
+- 각 공연에 `anomalyUserCount`가 추가됐습니다.
+
+### GET /api/v1/admin/concerts/{concertId} (확장)
+
+기존 `concert`, `bookingAttemptCount`, `bookingAttemptUserCount`에 다음이 추가됐습니다. **세는 단위가 다릅니다.**
+
+| 필드 | 단위 | 정의 |
+|---|---|---|
+| `bookingSuccessCount` | 고유 시도 | 마지막 단계 · 상태가 `COMPLETED/SUCCEEDED` |
+| `bookingFailureCount` | 고유 시도 | 마지막 상태가 `REJECTED`, `FAILED`, `ABANDONED`, `EXPIRED` |
+| `failureBreakdown` | 고유 시도 | 실패를 `"단계/상태"`로 나눈 것. 예: `SEAT_HOLD/REJECTED`(선점 실패), `SEAT_HOLD/EXPIRED`(선점 만료), `PAYMENT/ABANDONED`(결제 포기), `SEAT_SELECTION/ABANDONED`(사용자 중단) |
+| `bookingInProgressCount` | 고유 시도 | 그 밖(아직 끝나지 않은 시도) |
+| `bookingCount`, `cancelCount` | 고유 예매 | 그 공연의 BOOKING · CANCEL 이벤트의 고유 `bookingId` |
+| `checkInCount` | 티켓 | 입장 완료 티켓(`booking_history`의 COMPLETED) |
+| `assessedUserCount`, `unassessedUserCount` | 고유 사용자 | 참여자 중 성공한 평가가 있는 / 없는 사용자 |
+| `anomalyUserCount` | 고유 사용자 | 참여자 중 최신 이상 점수가 0.5 이상 |
+| `averageCreditScore` | 고유 사용자 | 참여자의 현재 Credit 평균 |
+| `usersByExpectedPolicy`, `expectedSanctionUserCount` | 고유 사용자 | 참여자의 예상 조치 |
+| `sanctions` | — | 이 공연에서 실제로 적용된 제재. `recorded`는 서비스 기준 |
+
+- 모집단: `bookingAttemptCount = bookingSuccessCount + bookingFailureCount + bookingInProgressCount`.
+  시작(`STARTED/ENTERED`)이 확인된 시도만 세고, 마지막 상태는 `sequence`가 가장 큰 이벤트로 정합니다(예매 시도 조회와 같은 기준).
+- 참여자는 그 공연의 예매 시도를 시작한 사용자입니다.
+- **`anomalyUserCount`는 "이 공연에서 탐지된 건수"가 아닙니다.** AI 평가는 사용자 단위라 다른 공연에서의 행동도 반영됩니다.
+- 같은 서비스 안에서만 집계합니다.
+
+### GET /api/v1/admin/concerts/{concertId}/trends (신규)
+
+| 파라미터 | 설명 |
+|---|---|
+| `serviceId` | 필수 |
+| `intervalSeconds` | `60`(기본), `300`, `600`, `3600`. 그 밖은 400 |
+| `from`, `to` | UTC 오프셋이 붙은 ISO-8601. `to` 기본값은 지금, `from` 기본값은 `to`에서 60개 버킷 앞. `from`은 간격의 배수로 내림 |
+
+버킷은 최대 500개입니다. 넘거나 `to <= from`이면 400입니다. 빈 버킷도 0으로 들어 있습니다.
+
+```json
+{"serviceId":"demo-ticketing","concertId":"c1","from":"2026-11-24T05:00:00Z","to":"2026-11-24T05:03:00Z",
+ "intervalSeconds":60,"sanctionRecorded":true,
+ "buckets":[{"startsAt":"2026-11-24T05:00:00Z","attemptCount":2,"anomalyAssessmentCount":0,"sanctionAppliedCount":0},
+            {"startsAt":"2026-11-24T05:01:00Z","attemptCount":1,"anomalyAssessmentCount":0,"sanctionAppliedCount":1},
+            {"startsAt":"2026-11-24T05:02:00Z","attemptCount":0,"anomalyAssessmentCount":1,"sanctionAppliedCount":0}]}
+```
+
+| 값 | 정의 |
+|---|---|
+| `attemptCount` | 그 버킷에 시작된 고유 예매 시도 수 |
+| `anomalyAssessmentCount` | 이 공연 참여자에게 저장된 이상 평가(점수 0.5 이상) 건수, 평가 시각 기준. 사용자가 이 공연에 처음 시도하기 **전**의 평가는 세지 않음 |
+| `sanctionAppliedCount` | 이 공연에서 실제 적용된 제재 수(고유 정책 결정, 첫 적용 시각 기준) |
+
+AI 평가는 사용자 단위이고 기본 60초 주기로 돕니다. 그래서 60초보다 잘게 나누지 않으며,
+`anomalyAssessmentCount`는 "이 공연에서 탐지된 건수"가 아니라 "이 공연 참여자가 참여 이후 이상으로 평가된 건수"입니다.
+
+### 정책 결정 요청 변경과 정책 적용 기록 API
+
+- `POST /api/v1/users/{userId}/policy-decisions`: 선택 필드 `concertId`(최대 50자)를 받습니다. 없으면 기존과 같습니다.
+  응답에 `concertId`가 추가됐고 `decidedAt`은 UTC(`Z`)입니다.
+- `POST /api/v1/policy-applications`: 외부 서비스가 실제로 적용한 정책을 기록합니다.
+  계약과 연동 방법은 [policy-application-integration.md](policy-application-integration.md)를 참고하세요.
+
+### 저장 구조
+
+| 테이블 | 변경 | 내용 |
+|---|---|---|
+| `risk_assessment` | 컬럼 6개 추가 | 평가 당시 AI에 보낸 Feature. 성공한 평가 전용이라는 점은 그대로 |
+| `risk_assessment_attempt` | 신규 | 평가 시도 이력. OK는 `assessment_id`로 평가를 가리키고, 그 밖은 Feature와 사유를 직접 가짐 |
+| `credit_calculation` | 신규 | Credit 산출 근거. 계산마다 1행 |
+| `user_credit` | `latest_calculation_id` 추가 | 현재 점수를 만든 최신 산출 근거 |
+| `policy_decision` | `service_id`, `concert_id` 추가 | 정책을 요청한 서비스와 공연 |
+| `policy_application` | 신규 | 실제 정책 적용 기록. `(service_id, external_application_id)` UNIQUE |
+
+관계: `risk_assessment_attempt.assessment_id → risk_assessment`, `credit_calculation.history_id → credit_history`,
+`credit_calculation.assessment_id → risk_assessment`, `credit_calculation.source_calculation_id → credit_calculation`,
+`user_credit.latest_calculation_id → credit_calculation`, `policy_application.decision_id → policy_decision`.
+
+**적용 방법**
+
+- 새 DB: `db/schema.sql`.
+- 기존 DB: `db/manual/067-admin-query-storage.sql`을 한 번 적용합니다(056, 062 적용 후). 테이블과 컬럼을 추가만 하며
+  기존 행을 바꾸거나 채우지 않습니다. 새 컬럼은 #67 이전 행에서 `null`입니다. 자동으로 실행되지 않습니다.
+- 적용하지 않고 #67 코드를 실행하면 AI 평가 저장, Credit 평가, 정책 결정, 관리자 조회가 실패합니다.
+
+### 제한 사항
+
+- 실제 제재 통계는 외부 서비스가 적용 기록을 보내야 채워집니다. ticket-fds-demo-ticketing 연동은 별도 이슈입니다.
+- 과거 데이터는 채우지 않습니다. #67 이전 평가의 Feature, 이전 Credit 이력의 산출 근거, 이전 정책 결정의 공연 ID는 `null`입니다.
+- 예상 정책 집계는 이상 점수를 0.01 구간으로 묶어 계산합니다. 정책 임계값(0.50, 0.70, 0.85)이 0.01의 배수라 결과는 같습니다.
+  임계값을 더 잘게 바꾸면 이 집계도 함께 바꿔야 합니다.
+- 공연별 집계는 그 서비스의 이벤트 metadata(JSON)를 조회합니다. 이벤트가 많이 쌓이면 `concertId` 생성 컬럼과 인덱스를 검토해야 합니다.
+- `keyword` 부분 검색은 앞쪽 와일드카드라 인덱스를 쓰지 못합니다. 서비스 범위로 먼저 좁혀집니다.
