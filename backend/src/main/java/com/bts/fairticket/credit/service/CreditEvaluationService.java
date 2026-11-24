@@ -10,6 +10,7 @@ import com.bts.fairticket.behavior.entity.BehaviorEvent;
 import com.bts.fairticket.common.exception.ApiException;
 import com.bts.fairticket.common.response.ResponseCode;
 import com.bts.fairticket.credit.dto.CreditEvaluationContext;
+import com.bts.fairticket.credit.entity.CreditCalculation;
 import com.bts.fairticket.credit.entity.CreditHistory;
 import com.bts.fairticket.credit.entity.UserCard;
 import com.bts.fairticket.credit.entity.UserCredit;
@@ -18,6 +19,7 @@ import com.bts.fairticket.credit.policy.CreditCalculator.CalculationInput;
 import com.bts.fairticket.credit.policy.CreditCalculator.CalculationResult;
 import com.bts.fairticket.credit.policy.CreditPolicyConstants;
 import com.bts.fairticket.credit.repository.BookingHistoryRepository;
+import com.bts.fairticket.credit.repository.CreditCalculationRepository;
 import com.bts.fairticket.credit.repository.CreditHistoryRepository;
 import com.bts.fairticket.credit.repository.UserCardRepository;
 import com.bts.fairticket.credit.repository.UserCreditRepository;
@@ -41,6 +43,7 @@ public class CreditEvaluationService {
     private final RiskAssessmentRepository riskAssessmentRepository;
     private final CreditHistoryRepository creditHistoryRepository;
     private final CreditCalculator creditCalculator;
+    private final CreditCalculationRepository creditCalculationRepository;
 
     /**
      * 관람 이력 변경(CHECK_IN · CANCEL · 노쇼)과 같은 순서(user_account → user_credit)로 행을 잠근 뒤에
@@ -99,7 +102,7 @@ public class CreditEvaluationService {
         Double anomalyScore = latestRisk.map(RiskAssessment::getAnomalyScore).orElse(null);
 
         // 3. 룰 기반 감점 계산 (카드 공유, IP 집중도, 요청 분산)
-        double rulePenalty = calculateRulePenalty(userId, context);
+        RulePenalty rule = calculateRulePenalty(userId, context);
 
         // 4. 수식 계산 컴포넌트 호출
         CalculationInput input = new CalculationInput(
@@ -107,7 +110,7 @@ public class CreditEvaluationService {
                 noShowCount,
                 autoCancelledCount,
                 anomalyScore,
-                rulePenalty
+                rule.capped()
         );
         CalculationResult result = creditCalculator.calculate(input);
 
@@ -130,6 +133,25 @@ public class CreditEvaluationService {
                 reason
         );
         creditHistoryRepository.save(history);
+
+        // 7. 산출 근거 기록 (#67). Credit 갱신 · 이력과 같은 트랜잭션이다. 점수가 그대로여도 남긴다.
+        CreditCalculation calculation = CreditCalculation.builder()
+                .userId(userId).historyId(history.getHistoryId()).kind(CreditCalculation.KIND_EVALUATION)
+                .assessmentId(latestRisk.map(RiskAssessment::getAssessmentId).orElse(null))
+                .completedCount((int) completedCount).noShowCount((int) noShowCount)
+                .autoCancelledCount((int) autoCancelledCount)
+                .anomalyScore(anomalyScore)
+                .recentIpAttemptCount(context == null ? null : context.recentIpAttemptCount())
+                .intervalVariance(context == null ? null : context.intervalVariance())
+                .cardSharedAccounts(rule.cardSharedAccounts())
+                .baseCredit(result.baseCredit()).aiPenalty(creditCalculator.aiPenalty(anomalyScore))
+                .cardPenalty(rule.card()).ipPenalty(rule.ip()).variancePenalty(rule.variance())
+                .rulePenaltyRaw(rule.raw()).rulePenalty(creditCalculator.cappedRulePenalty(rule.capped()))
+                .dynamicPenalty(result.dynamicPenalty()).rawCredit(result.baseCredit() - result.dynamicPenalty())
+                .scoreBefore(oldScore).scoreAfter(newScore).tier(result.grade().name()).reason(reason)
+                .build();
+        creditCalculationRepository.save(calculation);
+        userCredit.linkLatestCalculation(calculation.getCalculationId());
 
         log.info("User {} credit evaluated: {} -> {} (change: {}), grade: {}", 
                 userId, oldScore, newScore, changeAmount, result.grade());
@@ -195,7 +217,27 @@ public class CreditEvaluationService {
 
         userCredit.updateCreditScore(newScore, result.grade().name(), result.dynamicPenalty());
         userCreditRepository.save(userCredit);
-        creditHistoryRepository.save(new CreditHistory(user, event, oldScore, newScore, reason));
+        CreditHistory history = new CreditHistory(user, event, oldScore, newScore, reason);
+        creditHistoryRepository.save(history);
+
+        // 산출 근거 기록 (#67). 감점은 새로 계산하지 않았으므로 상세는 비워 두고,
+        // 재사용한 동적 감점을 계산한 평가(EVALUATION) 행을 가리킨다. 그 행이 없으면(#67 이전) null이다.
+        Long previousId = userCredit.getLatestCalculationId();
+        Long sourceId = previousId == null ? null : creditCalculationRepository.findById(previousId)
+                .map(previous -> CreditCalculation.KIND_EVALUATION.equals(previous.getKind())
+                        ? previous.getCalculationId() : previous.getSourceCalculationId())
+                .orElse(null);
+        CreditCalculation calculation = CreditCalculation.builder()
+                .userId(userId).historyId(history.getHistoryId()).kind(CreditCalculation.KIND_ATTENDANCE)
+                .sourceCalculationId(sourceId)
+                .completedCount((int) completedCount).noShowCount((int) noShowCount)
+                .autoCancelledCount((int) autoCancelledCount)
+                .baseCredit(result.baseCredit())
+                .dynamicPenalty(result.dynamicPenalty()).rawCredit(result.baseCredit() - result.dynamicPenalty())
+                .scoreBefore(oldScore).scoreAfter(newScore).tier(result.grade().name()).reason(reason)
+                .build();
+        creditCalculationRepository.save(calculation);
+        userCredit.linkLatestCalculation(calculation.getCalculationId());
 
         log.info("User {} credit updated by attendance change: {} -> {}, grade: {}",
                 userId, oldScore, newScore, result.grade());
@@ -204,9 +246,10 @@ public class CreditEvaluationService {
                 result.grade().name(), result.baseCredit(), result.dynamicPenalty(), result.penaltyPolicy()));
     }
 
-    private double calculateRulePenalty(String userId, CreditEvaluationContext context) {
-        double penalty = 0.0;
+    /** 룰 감점 내역. raw는 상한 적용 전 합, capped는 상한(30) 적용 후 값이다. 감점 기준과 계산은 그대로다. */
+    private record RulePenalty(int cardSharedAccounts, double card, double ip, double variance, double raw, double capped) { }
 
+    private RulePenalty calculateRulePenalty(String userId, CreditEvaluationContext context) {
         // ① 카드 공유 감점 (사용자가 등록한 카드 중 최대 공유 계정 수 기준)
         List<UserCard> cards = userCardRepository.findByUser_UserId(userId);
         long maxSharedAccounts = 0;
@@ -217,23 +260,28 @@ public class CreditEvaluationService {
             }
         }
 
+        double card = 0.0;
         if (maxSharedAccounts >= 4) {
-            penalty += CreditPolicyConstants.PENALTY_CARD_SHARING_HIGH; // -15
+            card = CreditPolicyConstants.PENALTY_CARD_SHARING_HIGH; // -15
         } else if (maxSharedAccounts >= 2) {
-            penalty += CreditPolicyConstants.PENALTY_CARD_SHARING_MID;  // -5
+            card = CreditPolicyConstants.PENALTY_CARD_SHARING_MID;  // -5
         }
 
         // ② IP 집중도 감점 (최근 10분간 5회 이상 시도)
+        double ip = 0.0;
         if (context != null && context.recentIpAttemptCount() != null && context.recentIpAttemptCount() >= 5) {
-            penalty += CreditPolicyConstants.PENALTY_IP_BURST; // -5
+            ip = CreditPolicyConstants.PENALTY_IP_BURST; // -5
         }
 
         // ③ 요청 간격 분산 감점 (1.0초^2 미만)
+        double variance = 0.0;
         if (context != null && context.intervalVariance() != null && context.intervalVariance() < 1.0) {
-            penalty += CreditPolicyConstants.PENALTY_LOW_INTERVAL_VARIANCE; // -5
+            variance = CreditPolicyConstants.PENALTY_LOW_INTERVAL_VARIANCE; // -5
         }
 
-        return Math.min(CreditPolicyConstants.MAX_RULE_PENALTY, penalty);
+        double raw = card + ip + variance;
+        return new RulePenalty(Math.toIntExact(maxSharedAccounts), card, ip, variance, raw,
+                Math.min(CreditPolicyConstants.MAX_RULE_PENALTY, raw));
     }
 
     public record EvaluationSummary(

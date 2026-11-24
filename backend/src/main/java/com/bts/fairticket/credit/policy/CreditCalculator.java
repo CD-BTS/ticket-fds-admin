@@ -33,11 +33,8 @@ public class CreditCalculator {
         double baseCredit = baseCredit(input.completedCount(), input.noShowCount(), input.autoCancelledCount());
 
         // 2. DynamicPenalty 산출
-        double anomalyScore = (input.anomalyScore() != null) ? Math.max(0.0, Math.min(1.0, input.anomalyScore())) : 0.0;
-        // AI 감점은 탐지 기준(anomalyScore 0.5) 이상에서만 적용한다: 0.5 → 0점, 1.0 → 40점 (#60).
-        // 0.5 미만은 모델이 이상으로 판정하지 않은 구간이므로 감점하지 않는다.
-        double aiPenalty = CreditPolicyConstants.WEIGHT_ANOMALY_SCORE * Math.max(0.0, 2.0 * anomalyScore - 1.0);
-        double rulePenalty = Math.min(CreditPolicyConstants.MAX_RULE_PENALTY, Math.max(0.0, input.rulePenalty()));
+        double aiPenalty = aiPenalty(input.anomalyScore());
+        double rulePenalty = cappedRulePenalty(input.rulePenalty());
 
         double dynamicPenalty = Math.min(CreditPolicyConstants.MAX_TOTAL_PENALTY, aiPenalty + rulePenalty);
 
@@ -53,6 +50,21 @@ public class CreditCalculator {
             long autoCancelledCount, double dynamicPenalty) {
         double penalty = Math.min(CreditPolicyConstants.MAX_TOTAL_PENALTY, Math.max(0.0, dynamicPenalty));
         return finalResult(baseCredit(completedCount, noShowCount, autoCancelledCount), penalty);
+    }
+
+    /**
+     * AI 감점. calculate가 쓰는 계산 그대로이며, 산출 근거를 기록할 때도 이 값을 쓴다 (#67).
+     * 탐지 기준(anomalyScore 0.5) 이상에서만 적용한다: 0.5 → 0점, 1.0 → 40점 (#60).
+     * 0.5 미만은 모델이 이상으로 판정하지 않은 구간이고, 점수가 없으면(null) 감점하지 않는다.
+     */
+    public double aiPenalty(Double anomalyScoreOrNull) {
+        double anomalyScore = (anomalyScoreOrNull != null) ? Math.max(0.0, Math.min(1.0, anomalyScoreOrNull)) : 0.0;
+        return CreditPolicyConstants.WEIGHT_ANOMALY_SCORE * Math.max(0.0, 2.0 * anomalyScore - 1.0);
+    }
+
+    /** 상한(30)을 적용한 룰 감점. calculate가 쓰는 계산 그대로다. */
+    public double cappedRulePenalty(double rulePenalty) {
+        return Math.min(CreditPolicyConstants.MAX_RULE_PENALTY, Math.max(0.0, rulePenalty));
     }
 
     private double baseCredit(long completedCount, long noShowCount, long autoCancelledCount) {

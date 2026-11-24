@@ -46,6 +46,8 @@ class CreditEvaluationServiceTest {
     private RiskAssessmentRepository riskAssessmentRepository;
     @Mock
     private CreditHistoryRepository creditHistoryRepository;
+    @Mock
+    private com.bts.fairticket.credit.repository.CreditCalculationRepository creditCalculationRepository;
 
     @Spy
     private CreditCalculator creditCalculator = new CreditCalculator();
