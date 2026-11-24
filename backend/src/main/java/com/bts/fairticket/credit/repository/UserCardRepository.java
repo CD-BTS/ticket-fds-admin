@@ -16,4 +16,7 @@ public interface UserCardRepository extends JpaRepository<UserCard, Long> {
 
     // 유저가 등록한 모든 카드 목록 조회
     List<UserCard> findByUser_UserId(String userId);
+
+    // 한 사용자가 같은 카드를 여러 번 써도 행은 하나만 둔다 (#63)
+    List<UserCard> findByUser_UserIdAndCardHash(String userId, String cardHash);
 }

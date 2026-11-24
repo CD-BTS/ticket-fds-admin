@@ -61,8 +61,8 @@ class CreditEvaluationServiceTest {
         UserAccount user = new UserAccount(userId, "service-1", "ext-good");
         UserCredit userCredit = new UserCredit(user); // 초기 50점
 
-        given(userAccountRepository.findById(userId)).willReturn(Optional.of(user));
-        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(userAccountRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
+        given(userCreditRepository.findByIdForUpdate(userId)).willReturn(Optional.of(userCredit));
 
         // 관람 이력: COMPLETED 10건, NO_SHOW 0건, AUTO_CANCELLED 0건
         BookingStats stats = new BookingStats() {
@@ -98,8 +98,8 @@ class CreditEvaluationServiceTest {
         UserAccount user = new UserAccount(userId, "service-1", "ext-risky");
         UserCredit userCredit = new UserCredit(user);
 
-        given(userAccountRepository.findById(userId)).willReturn(Optional.of(user));
-        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(userAccountRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
+        given(userCreditRepository.findByIdForUpdate(userId)).willReturn(Optional.of(userCredit));
         given(bookingHistoryRepository.getBookingStatsByUserId(userId)).willReturn(null);
 
         // AI 이상도 0.75: 40 * (2 * 0.75 - 1) = 20점 감점
@@ -176,8 +176,8 @@ class CreditEvaluationServiceTest {
     private UserCredit newUser(String userId, Double anomalyScore) {
         UserAccount user = new UserAccount(userId, "service-1", "ext-" + userId);
         UserCredit userCredit = new UserCredit(user);
-        given(userAccountRepository.findById(userId)).willReturn(Optional.of(user));
-        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(userAccountRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
+        given(userCreditRepository.findByIdForUpdate(userId)).willReturn(Optional.of(userCredit));
         given(bookingHistoryRepository.getBookingStatsByUserId(userId)).willReturn(null);
         given(riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId))
                 .willReturn(anomalyScore == null
@@ -201,8 +201,8 @@ class CreditEvaluationServiceTest {
         String userId = "penalty-user";
         UserAccount user = new UserAccount(userId, "service-1", "ext-penalty");
         UserCredit userCredit = new UserCredit(user);
-        given(userAccountRepository.findById(userId)).willReturn(Optional.of(user));
-        given(userCreditRepository.findById(userId)).willReturn(Optional.of(userCredit));
+        given(userAccountRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
+        given(userCreditRepository.findByIdForUpdate(userId)).willReturn(Optional.of(userCredit));
         given(bookingHistoryRepository.getBookingStatsByUserId(userId)).willReturn(null);
         given(riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId))
                 .willReturn(Optional.empty());

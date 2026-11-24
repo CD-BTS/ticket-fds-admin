@@ -36,8 +36,10 @@ public class RiskAssessedCreditListener {
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
 	public void onAssessed(RiskAssessedEvent event) {
 		try {
-			// 최근 10분 IP 시도 수는 이 경로에서 알 수 없어 null(감점 없음)로 둔다. 간격 분산은 평가에 쓴 Feature 값을 쓴다.
-			var context = new CreditEvaluationContext(TRIGGER_REASON, null, event.bookingIntervalVariance());
+			// 최근 10분 동일 IP 시도 수는 평가 때 이벤트에서 센 값이다. IP가 실린 시도 이벤트가 없으면 null(감점 없음)이다.
+			// 간격 분산은 평가에 쓴 Feature 값을 쓴다.
+			var context = new CreditEvaluationContext(TRIGGER_REASON, event.recentIpAttemptCount(),
+					event.bookingIntervalVariance());
 			newTransaction.executeWithoutResult(tx -> credits.evaluateAndApplyCredit(event.userId(), context));
 		} catch (RuntimeException exception) {
 			log.warn("Credit re-evaluation after AI assessment failed (user={}, assessmentId={}): {}",

@@ -31,6 +31,8 @@ public class FeatureAggregationService {
     public static final int WINDOW_DAYS = 30;
     /** ticket-fds-ai 최종 모델(#20): 간격 분산은 간격 5개(시도 6건) 이상일 때만 계산하고, 그 미만은 null로 보낸다. */
     static final int MIN_INTERVALS_FOR_VARIANCE = 5;
+    /** Credit 룰 감점(IP 집중도)의 집계 구간: 최근 10분. */
+    static final int RECENT_IP_WINDOW_MINUTES = 10;
     static final String EVENT_BOOKING_ATTEMPT = "BOOKING_ATTEMPT";
     static final String META_ATTEMPT_ID = "attemptId";
     static final String META_PAYMENT_IDENTIFIER = "paymentIdentifier";
@@ -49,6 +51,17 @@ public class FeatureAggregationService {
                         userId, windowStartUtc, calculatedAtUtc);
 
         return calculate(events, windowStartUtc, calculatedAtUtc);
+    }
+
+    /**
+     * Credit 룰 감점 입력값 recentIpAttemptCount: 분석 시각 직전 10분 동안 같은 IP에서 들어온 고유 예매 시도 수 (#63).
+     * AI 모델에 보내는 Feature가 아니다. ip_booking_density(30일, 예매 완료 기준 고유 계정 수)와 정의가 다르므로
+     * 서로 대신 쓰지 않는다. 예매 시도 이벤트에 IP가 없으면 null을 돌려주고, 그 경우 감점하지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public Integer recentIpAttemptCount(String userId, LocalDateTime calculatedAtUtc) {
+        return behaviorEventRepository.maxRecentAttemptsFromUserIps(
+                userId, calculatedAtUtc.minusMinutes(RECENT_IP_WINDOW_MINUTES), calculatedAtUtc);
     }
 
     /**

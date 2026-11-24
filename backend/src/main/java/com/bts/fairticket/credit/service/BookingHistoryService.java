@@ -1,11 +1,15 @@
 package com.bts.fairticket.credit.service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +24,9 @@ import com.bts.fairticket.concert.dto.ConcertResponse;
 import com.bts.fairticket.concert.repository.ConcertRepository;
 import com.bts.fairticket.credit.entity.BookingHistory;
 import com.bts.fairticket.credit.entity.BookingHistory.BookingStatus;
+import com.bts.fairticket.credit.entity.UserCard;
 import com.bts.fairticket.credit.repository.BookingHistoryRepository;
+import com.bts.fairticket.credit.repository.UserCardRepository;
 import com.bts.fairticket.credit.repository.UserCreditRepository;
 import com.bts.fairticket.user.entity.UserAccount;
 
@@ -50,14 +56,58 @@ public class BookingHistoryService {
     private final UserCreditRepository userCreditRepository;
     private final ConcertRepository concertRepository;
     private final CreditEvaluationService creditEvaluationService;
+    private final UserCardRepository userCardRepository;
 
     @Transactional
     public void apply(BehaviorEvent event) {
+        if ("BOOKING".equals(event.getEventType())) {
+            recordPaymentCard(event);
+        }
         switch (event.getEventType()) {
             case "BOOKING" -> applyBooking(event);
             case "CANCEL" -> applyCancel(event);
             case "CHECK_IN" -> applyCheckIn(event);
             default -> { }
+        }
+    }
+
+    /**
+     * BOOKING의 결제 식별자(metadata.paymentIdentifier)를 user_card에 남긴다 (#63).
+     * Credit의 카드 공유 룰 감점(같은 카드 해시를 가진 고유 계정 수)이 이 테이블을 읽는다.
+     * 카드 해시는 SHA-256(serviceId:paymentIdentifier)라서 다른 서비스의 같은 식별자와 섞이지 않는다.
+     * 같은 사용자가 같은 카드로 다시 결제하면 행을 늘리지 않고 마지막 사용 시각만 바꾼다.
+     * 이벤트 등록이 사용자 단위로 직렬화되어 있어(user_account 행 잠금) 같은 사용자의 중복 행이 생기지 않는다.
+     * 결제 식별자가 없으면 아무것도 하지 않는다.
+     */
+    private void recordPaymentCard(BehaviorEvent event) {
+        String cardHash = cardHash(event.getServiceId(), event.getMetadata());
+        if (cardHash == null) {
+            return;
+        }
+        UserAccount user = event.getUser();
+        LocalDateTime usedAt = seconds(event.getOccurredAt());
+        List<UserCard> existing = userCardRepository.findByUser_UserIdAndCardHash(user.getUserId(), cardHash);
+        if (existing.isEmpty()) {
+            UserCard card = new UserCard(user, cardHash, null, null);
+            card.markUsed(usedAt);
+            userCardRepository.save(card);
+        } else {
+            existing.get(0).markUsed(usedAt);
+        }
+    }
+
+    /** @return SHA-256(serviceId:paymentIdentifier)의 소문자 16진수 64자. 결제 식별자가 문자열이 아니거나 비어 있으면 null */
+    static String cardHash(String serviceId, Map<String, Object> metadata) {
+        if (serviceId == null || metadata == null
+                || !(metadata.get("paymentIdentifier") instanceof String identifier) || identifier.isBlank()) {
+            return null;
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest((serviceId + ":" + identifier.trim()).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
         }
     }
 

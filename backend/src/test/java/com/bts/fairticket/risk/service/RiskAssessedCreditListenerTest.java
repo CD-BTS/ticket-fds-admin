@@ -19,15 +19,15 @@ import com.bts.fairticket.risk.event.RiskAssessedEvent;
 class RiskAssessedCreditListenerTest {
 
 	@Test
-	void reEvaluatesCreditInNewTransactionWithFeatureVariance() {
+	void reEvaluatesCreditInNewTransactionWithFeatureVarianceAndRecentIpAttempts() {
 		var credits = mock(CreditEvaluationService.class);
 		var tx = mock(PlatformTransactionManager.class);
-		new RiskAssessedCreditListener(credits, tx).onAssessed(new RiskAssessedEvent("u1", 5L, 0.72, 0.4));
+		new RiskAssessedCreditListener(credits, tx).onAssessed(new RiskAssessedEvent("u1", 5L, 0.72, 0.4, 7));
 
 		var context = ArgumentCaptor.forClass(CreditEvaluationContext.class);
 		verify(credits).evaluateAndApplyCredit(eq("u1"), context.capture());
 		assertEquals(RiskAssessedCreditListener.TRIGGER_REASON, context.getValue().triggerReason());
-		assertNull(context.getValue().recentIpAttemptCount());
+		assertEquals(7, context.getValue().recentIpAttemptCount());
 		assertEquals(0.4, context.getValue().intervalVariance(), 1e-9);
 
 		var definition = ArgumentCaptor.forClass(TransactionDefinition.class);
@@ -40,6 +40,6 @@ class RiskAssessedCreditListenerTest {
 		var credits = mock(CreditEvaluationService.class);
 		when(credits.evaluateAndApplyCredit(any(), any())).thenThrow(new ApiException(ResponseCode.CREDIT_NOT_FOUND));
 		var listener = new RiskAssessedCreditListener(credits, mock(PlatformTransactionManager.class));
-		assertDoesNotThrow(() -> listener.onAssessed(new RiskAssessedEvent("u1", 5L, 0.72, null)));
+		assertDoesNotThrow(() -> listener.onAssessed(new RiskAssessedEvent("u1", 5L, 0.72, null, null)));
 	}
 }

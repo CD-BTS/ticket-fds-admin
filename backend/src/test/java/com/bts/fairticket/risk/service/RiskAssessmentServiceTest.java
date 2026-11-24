@@ -44,9 +44,9 @@ import com.bts.fairticket.user.repository.UserAccountRepository;
 class RiskAssessmentServiceTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-24T05:00:00.789Z");
-	// 분석 시각은 밀리초까지 유지한다(occurred_at이 datetime(3)). 커서의 checked_at만 초 단위다.
-	private static final LocalDateTime NOW_UTC = LocalDateTime.of(2026, 11, 24, 5, 0, 0, 789_000_000);
-	private static final LocalDateTime CHECKED_AT = LocalDateTime.of(2026, 11, 24, 5, 0, 0);
+	// 분석 시각은 커서의 checked_at과 같은 값이어야 하므로 초 단위로 버린다(#63).
+	private static final LocalDateTime NOW_UTC = LocalDateTime.of(2026, 11, 24, 5, 0, 0);
+	private static final LocalDateTime CHECKED_AT = NOW_UTC;
 
 	@Mock RiskAssessmentCursorRepository cursors;
 	@Mock FeatureAggregationService features;
@@ -63,14 +63,20 @@ class RiskAssessmentServiceTest {
 		service = new RiskAssessmentService(cursors, features, ai, users, assessments, events, transactions,
 				Clock.fixed(NOW, ZoneOffset.UTC), 2, 500);
 		when(cursors.findById(any())).thenReturn(Optional.empty());
-		when(users.findById(any())).thenAnswer(inv -> Optional.of(new UserAccount(inv.getArgument(0), "svc", "ext")));
+		when(users.findByIdForUpdate(any())).thenAnswer(inv -> Optional.of(new UserAccount(inv.getArgument(0), "svc", "ext")));
 		when(assessments.save(any())).thenAnswer(inv -> inv.getArgument(0));
 	}
 
 	private static Candidate candidate(String userId, long advanceToEventId) {
+		return candidate(userId, advanceToEventId, null, null); // 커서가 아직 없는 사용자
+	}
+
+	private static Candidate candidate(String userId, long advanceToEventId, Long seenLastEventId, String seenCheckedAt) {
 		return new Candidate() {
 			public String getUserId() { return userId; }
 			public Long getAdvanceToEventId() { return advanceToEventId; }
+			public Long getSeenLastEventId() { return seenLastEventId; }
+			public String getSeenCheckedAt() { return seenCheckedAt; }
 		};
 	}
 
@@ -92,6 +98,7 @@ class RiskAssessmentServiceTest {
 	void savesOkResultsPublishesEventAndAdvancesCursorForEveryStatus() {
 		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of(candidate("u1", 10), candidate("u2", 20), candidate("u3", 30)));
 		when(features.aggregateFeatures(any(), eq(NOW_UTC))).thenReturn(features(0.01));
+		when(features.recentIpAttemptCount("u1", NOW_UTC)).thenReturn(6);
 		when(ai.predictBatch(anyList())).thenAnswer(inv -> {
 			List<AiPredictRequest> reqs = inv.getArgument(0);
 			return reqs.stream().map(r -> switch (r.userId()) {
@@ -103,7 +110,7 @@ class RiskAssessmentServiceTest {
 
 		var summary = service.runOnce();
 
-		assertEquals(new RiskAssessmentService.RunSummary(3, 1, 1, 1), summary);
+		assertEquals(new RiskAssessmentService.RunSummary(3, 1, 1, 1, 0), summary);
 		verify(ai, times(2)).predictBatch(anyList()); // batch-size 2 → 2 + 1
 		var saved = ArgumentCaptor.forClass(RiskAssessment.class);
 		verify(assessments, times(1)).save(saved.capture());
@@ -114,6 +121,7 @@ class RiskAssessmentServiceTest {
 		verify(events).publishEvent(published.capture());
 		assertEquals("u1", published.getValue().userId());
 		assertEquals(0.01, published.getValue().bookingIntervalVariance(), 1e-9);
+		assertEquals(6, published.getValue().recentIpAttemptCount()); // Credit 룰 감점 입력값(#63). AI 요청에는 없다
 
 		var cursor = ArgumentCaptor.forClass(RiskAssessmentCursor.class);
 		verify(cursors, times(3)).save(cursor.capture());
@@ -127,7 +135,7 @@ class RiskAssessmentServiceTest {
 	}
 
 	@Test
-	void sendsUtcCalculatedAtWithMillisAndThirtyDayWindow() {
+	void sendsUtcCalculatedAtAndThirtyDayWindow() {
 		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of(candidate("u1", 1)));
 		when(features.aggregateFeatures("u1", NOW_UTC)).thenReturn(features(null));
 		when(ai.predictBatch(anyList())).thenReturn(List.of(status("u1", "INSUFFICIENT_DATA")));
@@ -138,7 +146,7 @@ class RiskAssessmentServiceTest {
 		ArgumentCaptor<List<AiPredictRequest>> sent = ArgumentCaptor.forClass(List.class);
 		verify(ai).predictBatch(sent.capture());
 		AiPredictRequest req = sent.getValue().get(0);
-		assertEquals("2026-11-24T05:00:00.789Z", req.calculatedAt());
+		assertEquals("2026-11-24T05:00:00Z", req.calculatedAt());
 		// 후보 선정과 Feature 집계가 같은 분석 시각을 쓴다.
 		verify(cursors).findCandidates(NOW_UTC, 500);
 		verify(features).aggregateFeatures("u1", NOW_UTC);
@@ -172,9 +180,50 @@ class RiskAssessmentServiceTest {
 	}
 
 	@Test
+	void discardsResultWhenCursorMovedSinceSelectionWithoutSavingOrPublishing() {
+		// 후보 선정 때 본 커서는 5였는데, AI 응답을 기다리는 사이 다른 실행이 9까지 반영했다.
+		var moved = new RiskAssessmentCursor("u1");
+		moved.advance(9, "OK", CHECKED_AT);
+		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of(
+				candidate("u1", 7, 5L, "2026-11-24 04:59:00"), candidate("u2", 8)));
+		when(cursors.findById("u1")).thenReturn(Optional.of(moved));
+		when(features.aggregateFeatures(any(), any())).thenReturn(features(null));
+		when(ai.predictBatch(anyList())).thenReturn(List.of(ok("u1", 0.9), ok("u2", 0.3)));
+
+		var summary = service.runOnce();
+
+		assertEquals(new RiskAssessmentService.RunSummary(2, 1, 0, 0, 1), summary);
+		// 버린 결과(u1)는 평가 저장, 진행 위치 갱신, Credit 갱신 이벤트를 모두 하지 않는다. u2는 정상 반영된다.
+		var saved = ArgumentCaptor.forClass(RiskAssessment.class);
+		verify(assessments, times(1)).save(saved.capture());
+		assertEquals(0.3, saved.getValue().getAnomalyScore(), 1e-9);
+		var published = ArgumentCaptor.forClass(RiskAssessedEvent.class);
+		verify(events, times(1)).publishEvent(published.capture());
+		assertEquals("u2", published.getValue().userId());
+		var cursor = ArgumentCaptor.forClass(RiskAssessmentCursor.class);
+		verify(cursors, times(1)).save(cursor.capture());
+		assertEquals("u2", cursor.getValue().getUserId());
+		assertEquals(9L, moved.getLastEventId()); // 뒤로 가지 않는다
+	}
+
+	@Test
+	void appliesResultWhenCursorIsUnchangedSinceSelection() {
+		var unchanged = new RiskAssessmentCursor("u1");
+		unchanged.advance(5, "OK", LocalDateTime.of(2026, 11, 24, 4, 59, 0));
+		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of(candidate("u1", 7, 5L, "2026-11-24 04:59:00")));
+		when(cursors.findById("u1")).thenReturn(Optional.of(unchanged));
+		when(features.aggregateFeatures(any(), any())).thenReturn(features(null));
+		when(ai.predictBatch(anyList())).thenReturn(List.of(ok("u1", 0.6)));
+
+		assertEquals(new RiskAssessmentService.RunSummary(1, 1, 0, 0, 0), service.runOnce());
+		assertEquals(7L, unchanged.getLastEventId());
+		verify(events).publishEvent(any(RiskAssessedEvent.class));
+	}
+
+	@Test
 	void noCandidatesMeansNoAiCall() {
 		when(cursors.findCandidates(NOW_UTC, 500)).thenReturn(List.of());
-		assertEquals(new RiskAssessmentService.RunSummary(0, 0, 0, 0), service.runOnce());
+		assertEquals(new RiskAssessmentService.RunSummary(0, 0, 0, 0, 0), service.runOnce());
 		verifyNoInteractions(ai);
 	}
 }

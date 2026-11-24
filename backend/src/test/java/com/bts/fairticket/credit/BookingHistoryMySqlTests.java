@@ -301,6 +301,32 @@ class BookingHistoryMySqlTests {
 	}
 
 	@Test
+	void creditEvaluationWaitsForInProgressAttendanceChangeAndUsesTheLatestHistory() throws Exception {
+		booking(201);
+		var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+		try {
+			var pending = new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(tx -> {
+				// 진행 중인 CHECK_IN과 같은 순서로 잠근다: user_account → user_credit.
+				userAccountRepository.findByIdForUpdate(userId).orElseThrow();
+				userCreditRepository.findByIdForUpdate(userId).orElseThrow();
+				// 그 사이 시작된 Credit 평가(AI 평가 반영 · 수동 평가 공통)는 잠금을 기다린다.
+				var evaluation = executor.submit(() -> creditEvaluationService.evaluateAndApplyCredit(userId,
+						CreditEvaluationContext.defaultContext()));
+				org.junit.jupiter.api.Assertions.assertThrows(java.util.concurrent.TimeoutException.class,
+						() -> evaluation.get(1, java.util.concurrent.TimeUnit.SECONDS));
+				// 관람 완료가 반영되고 커밋된다.
+				jdbc.update("UPDATE booking_history SET status='COMPLETED' WHERE service_id=? AND ticket_id=?", SERVICE, ticketA);
+				return evaluation;
+			});
+			// #63: 잠금이 풀린 뒤의 평가는 방금 커밋된 관람 이력(A=1)으로 계산한다. 이전 통계(A=0 → 50)로 덮어쓰지 않는다.
+			assertEquals(55, pending.get(10, java.util.concurrent.TimeUnit.SECONDS).newScore());
+			assertEquals(55, score());
+		} finally {
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
 	void scoreIsRestoredAfterBeingClampedAtZero() throws Exception {
 		// 저장된 감점이 최대(70)인 사용자: 노쇼가 쌓이면 0에서 잘린다.
 		jdbc.update("UPDATE user_credit SET credit_score=0, dynamic_penalty=70 WHERE user_id=?", userId);

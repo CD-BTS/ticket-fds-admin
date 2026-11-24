@@ -42,12 +42,18 @@ public class CreditEvaluationService {
     private final CreditHistoryRepository creditHistoryRepository;
     private final CreditCalculator creditCalculator;
 
+    /**
+     * 관람 이력 변경(CHECK_IN · CANCEL · 노쇼)과 같은 순서(user_account → user_credit)로 행을 잠근 뒤에
+     * 관람 통계와 Credit을 읽는다 (#63). 잠금 없이 읽으면 그 사이 커밋된 관람 이력이 빠진 값으로
+     * Credit을 덮어쓸 수 있다. 이 메서드가 트랜잭션을 시작해야 잠금 뒤의 조회가 최신 값을 본다.
+     * 이미 다른 조회를 한 트랜잭션 안에서 호출하면(REPEATABLE READ) 이전 시점의 통계를 읽을 수 있다.
+     */
     @Transactional
     public EvaluationSummary evaluateAndApplyCredit(String userId, CreditEvaluationContext context) {
-        UserAccount user = userAccountRepository.findById(userId)
+        UserAccount user = userAccountRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ApiException(ResponseCode.USER_NOT_FOUND));
 
-        UserCredit userCredit = userCreditRepository.findById(userId)
+        UserCredit userCredit = userCreditRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ApiException(ResponseCode.CREDIT_NOT_FOUND));
 
         int oldScore = userCredit.getCreditScore();
