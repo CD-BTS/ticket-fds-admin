@@ -1,5 +1,6 @@
 package com.bts.fairticket.credit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -127,5 +128,34 @@ class CreditEvaluationApiIntegrationTest {
                 .andExpect(jsonPath("$.data.newScore").value(35))
                 .andExpect(jsonPath("$.data.grade").value("SUSPICIOUS"))
                 .andExpect(jsonPath("$.data.penaltyPolicy").value("CAPTCHA 추가 인증"));
+    }
+
+    @Test
+    @DisplayName("[통합] #64 다른 서비스의 사용자는 재평가할 수 없고 Credit도 바뀌지 않는다")
+    void evaluateCredit_RejectsUserOfAnotherService() throws Exception {
+        UserAccount other = userAccountRepository.saveAndFlush(new UserAccount("eval-other-svc", "service-2", "ext-o"));
+        userCreditRepository.saveAndFlush(new UserCredit(other));
+        int before = userCreditRepository.findById(other.getUserId()).orElseThrow().getCreditScore();
+
+        mockMvc.perform(post("/api/v1/users/{userId}/credit/evaluate", other.getUserId())
+                        .requestAttr(ApiKeyFilter.SERVICE_ATTRIBUTE, SERVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"intervalVariance\": 0.0}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+
+        assertThat(userCreditRepository.findById(other.getUserId()).orElseThrow().getCreditScore()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("[통합] #64 인증된 서비스가 없는 재평가 요청은 401로 거부한다")
+    void evaluateCredit_RequiresAuthenticatedService() throws Exception {
+        UserAccount user = userAccountRepository.saveAndFlush(new UserAccount("eval-no-svc", SERVICE_ID, "ext-n"));
+        userCreditRepository.saveAndFlush(new UserCredit(user));
+
+        mockMvc.perform(post("/api/v1/users/{userId}/credit/evaluate", user.getUserId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
     }
 }

@@ -35,8 +35,10 @@ public class CreditEvaluationController {
                 ? request 
                 : new CreditEvaluationRequest(null, null, null);
 
-        EvaluationSummary summary = creditEvaluationService.evaluateAndApplyCredit(
-                userId, 
+        // 인증된 서비스에 속한 사용자만 재평가한다 (#64). 이전에는 다른 서비스 사용자의 Credit도 바꿀 수 있었다.
+        EvaluationSummary summary = creditEvaluationService.evaluateAndApplyCreditForService(
+                userId,
+                authenticatedService,
                 safeRequest.toContext()
         );
 
