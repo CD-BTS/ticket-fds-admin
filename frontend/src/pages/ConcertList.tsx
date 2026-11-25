@@ -71,7 +71,7 @@ export default function ConcertList({ session, onOpen }: Props) {
                   return (
                     <tr key={c.concertId}>
                       <td><b>{c.name}</b></td>
-                      <td className="tnum muted">{dateTime(c.startsAt)} ~ {dateTime(c.endsAt).slice(11)}</td>
+                      <td className="tnum muted">{dateTime(c.startsAt)} ~ {dateTime(c.endsAt)}</td>
                       <td className="muted">{c.venue || '—'}</td>
                       <td><Badge tone={ended ? 'muted' : upcoming ? 'neutral' : 'ok'}>{ended ? '종료' : upcoming ? '예정' : '진행 중'}</Badge></td>
                       <td className="num">{c.anomalyUserCount == null ? <span className="na">—</span>
