@@ -254,3 +254,19 @@ export interface UserFeatures {
   cardReuseCount: number | null
   ipBookingDensity: number | null
 }
+
+/** GET /api/v1/admin/users/{userId}/bookings. 티켓 1장의 관람 이력이며 시각은 UTC(Z)입니다. */
+export interface BookingHistory {
+  historyId: number
+  serviceId: string
+  bookingId: string
+  ticketId: string | null
+  concertId: string | null
+  concertName: string | null
+  venue: string | null
+  status: 'BOOKED' | 'COMPLETED' | 'NO_SHOW' | 'AUTO_CANCELLED' | 'CANCELLED' | string
+  bookedAt: string | null
+  performanceStartsAt: string | null
+  performanceEndsAt: string | null
+  createdAt: string | null
+}

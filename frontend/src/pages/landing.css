@@ -1,0 +1,179 @@
+/* 서비스 소개(랜딩) 전용 다크 테마. 관리자 콘솔의 라이트 테마와 분리되어 .landing 안에서만 적용됩니다. */
+html.landing-active{background:#05070d;scroll-behavior:smooth}
+.landing{
+  --l-bg:#05070d;--l-text:#f1f5f9;--l-sub:#9aa7b8;--l-dim:#64748b;--l-line:rgba(148,163,184,.16);
+  --l-blue:#3b82f6;--l-violet:#8b5cf6;--l-accent:#93c5fd;--l-warn:#fbbf24;--l-delay:#fb923c;--l-danger:#f87171;
+  background:var(--l-bg);color:var(--l-text);min-height:100vh;overflow-x:clip;font-size:16px;line-height:1.6;
+}
+.landing h1,.landing h2,.landing h3,.landing p{margin:0}
+.landing button{font:inherit;color:inherit;cursor:pointer}
+.l-wrap{max-width:1120px;margin:0 auto;padding:0 28px;position:relative}
+
+/* 상단 내비게이션 */
+.l-nav{position:fixed;inset:0 0 auto 0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:16px;height:60px;padding:0 28px;
+  border-bottom:1px solid transparent;transition:background-color .3s,border-color .3s}
+.l-nav.solid{background:rgba(5,7,13,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom-color:var(--l-line)}
+.l-brand{display:inline-flex;align-items:center;gap:9px;border:0;background:none;padding:0;font-size:16px;letter-spacing:.06em}
+.l-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,var(--l-blue),var(--l-violet));color:#fff}
+.l-nav nav{display:flex;gap:4px}
+.l-nav nav button{border:0;background:none;padding:6px 12px;border-radius:6px;font-size:14px;color:var(--l-sub);transition:color .2s}
+.l-nav nav button:hover{color:var(--l-text)}
+.l-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 20px;border-radius:8px;border:1px solid rgba(148,163,184,.32);
+  background:rgba(255,255,255,.03);font-size:15px;font-weight:550;transition:background-color .2s,border-color .2s}
+.l-btn:hover{background:rgba(255,255,255,.08);border-color:rgba(148,163,184,.55)}
+.l-btn.primary{background:#fff;border-color:#fff;color:#0b1020 !important}
+.l-btn.primary:hover{background:#e2e8f0}
+.l-btn.sm{height:34px;padding:0 13px;font-size:13.5px}
+.l-btn.lg{height:52px;padding:0 28px;font-size:16px}
+.landing :focus-visible{outline:2px solid var(--l-accent);outline-offset:3px}
+
+/* 1. Hero */
+.l-hero{position:relative;min-height:100vh;min-height:100svh;display:flex;align-items:center;justify-content:center;text-align:center;padding:96px 28px 88px;overflow:hidden}
+.l-hero-inner{position:relative;max-width:920px}
+.l-eyebrow{font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--l-accent);margin-bottom:22px !important}
+.l-hero h1{font-size:clamp(36px,6.4vw,84px);font-weight:750;line-height:1.14;letter-spacing:-.035em;word-break:keep-all}
+.l-hero h1 span{display:block}
+.grad{background:linear-gradient(100deg,#93c5fd 0%,#a78bfa 55%,#c4b5fd 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.l-lead{margin-top:24px !important;font-size:clamp(16px,1.6vw,20px);color:var(--l-sub);word-break:keep-all}
+.l-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:36px}
+.l-scroll{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);display:grid;place-items:center;width:40px;height:40px;border:0;background:none;color:var(--l-dim)}
+.l-scroll svg{animation:l-bob 2s ease-in-out infinite}
+@keyframes l-bob{50%{transform:translateY(5px)}}
+.rise{opacity:0;animation:l-rise .9s cubic-bezier(.2,.7,.2,1) forwards}
+@keyframes l-rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+
+/* 천천히 움직이는 배경 그라데이션: transform만 바꿔 합성 단계에서 처리합니다. */
+.l-aurora{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.l-aurora i{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;will-change:transform}
+.l-aurora i:nth-child(1){width:52vw;height:52vw;left:-12vw;top:-18vw;background:radial-gradient(circle,#1d4ed8 0%,transparent 68%);animation:l-drift-a 26s ease-in-out infinite alternate}
+.l-aurora i:nth-child(2){width:46vw;height:46vw;right:-10vw;top:6vw;background:radial-gradient(circle,#6d28d9 0%,transparent 68%);animation:l-drift-b 32s ease-in-out infinite alternate}
+.l-aurora i:nth-child(3){width:40vw;height:40vw;left:28vw;bottom:-24vw;background:radial-gradient(circle,#0e7490 0%,transparent 70%);opacity:.3;animation:l-drift-a 38s ease-in-out infinite alternate-reverse}
+.l-aurora.small i{opacity:.34}
+@keyframes l-drift-a{to{transform:translate3d(9vw,7vw,0) scale(1.14)}}
+@keyframes l-drift-b{to{transform:translate3d(-8vw,9vw,0) scale(.9)}}
+
+/* 공통 섹션: 제목은 크게, 설명은 한 단계 낮은 명도로 */
+.l-section{padding:clamp(88px,13vh,160px) 0}
+.l-kicker{font-size:13px;font-weight:600;letter-spacing:.14em;color:var(--l-accent);margin-bottom:18px !important}
+.landing h2{font-size:clamp(26px,4vw,52px);font-weight:720;line-height:1.22;letter-spacing:-.03em;word-break:keep-all}
+.landing h3{font-size:clamp(18px,2vw,24px);font-weight:650;letter-spacing:-.02em;word-break:keep-all}
+.reveal{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+.reveal.in{opacity:1;transform:none}
+.reveal.zoom{transform:translateY(32px) scale(.95)}
+.reveal.zoom.in{transform:none}
+
+/* 2. 문제 */
+.l-problems{list-style:none;margin:64px 0 0;padding:0}
+.l-problems li{display:grid;grid-template-columns:88px minmax(0,1fr);gap:24px;padding:30px 0;border-top:1px solid var(--l-line)}
+.l-problems li:last-child{border-bottom:1px solid var(--l-line)}
+.l-num{font-size:15px;color:var(--l-dim);font-variant-numeric:tabular-nums;letter-spacing:.08em;padding-top:4px}
+.l-problems h3{display:flex;align-items:center;gap:12px}
+.l-problems h3 svg{color:var(--l-dim);flex:none}
+.l-problems p{margin-top:8px;color:var(--l-sub);word-break:keep-all}
+
+/* 3. 동작 과정: 스크롤 진행도에 따라 단계가 켜지는 고정 구간 */
+.l-pipeline{position:relative;height:360vh;background:linear-gradient(180deg,transparent,rgba(30,58,138,.12) 30%,rgba(76,29,149,.1) 70%,transparent)}
+.l-pipeline.static{height:auto;padding:clamp(88px,13vh,160px) 0}
+.l-stage{position:sticky;top:0;height:100vh;display:flex;align-items:center;overflow:hidden}
+.l-stage .l-wrap{width:100%}
+.l-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:clamp(40px,8vh,80px)}
+.l-flow-cell{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;opacity:.34;transition:opacity .5s}
+.l-flow-cell.on{opacity:1}
+.l-node{position:relative;z-index:1;display:grid;place-items:center;width:56px;height:56px;border-radius:50%;background:#0b1020;border:1px solid rgba(148,163,184,.3);
+  color:var(--l-sub);transition:border-color .5s,color .5s,box-shadow .5s,transform .5s}
+.l-flow-cell.on .l-node{border-color:rgba(96,165,250,.7);color:#bfdbfe}
+.l-flow-cell.now .l-node{transform:scale(1.12);box-shadow:0 0 0 6px rgba(59,130,246,.14),0 0 36px rgba(99,102,241,.45)}
+.l-flow-name{margin-top:16px;font-size:15px;font-weight:600;color:var(--l-sub);word-break:keep-all;padding:0 8px;transition:color .5s}
+.l-flow-cell.now .l-flow-name{color:var(--l-text)}
+/* 연결선과 그 위를 이동하는 데이터 */
+.l-seg{position:absolute;left:50%;top:28px;width:100%;height:2px;background:rgba(148,163,184,.18)}
+.l-seg i{position:absolute;inset:0;background:linear-gradient(90deg,var(--l-blue),var(--l-violet));transform:scaleX(0);transform-origin:left;transition:transform .7s cubic-bezier(.3,.7,.2,1)}
+.l-seg.on i{transform:scaleX(1)}
+.l-seg b{position:absolute;top:-3px;left:0;width:8px;height:8px;border-radius:50%;background:#bfdbfe;box-shadow:0 0 12px #60a5fa;opacity:0}
+.l-seg.on b{animation:l-packet 2.6s linear infinite}
+.l-seg.on b:nth-of-type(2){animation-delay:.87s}
+.l-seg.on b:nth-of-type(3){animation-delay:1.74s}
+.l-seg.flowing b{animation-duration:1.6s}
+@keyframes l-packet{0%{left:0;opacity:0}12%{opacity:1}88%{opacity:1}100%{left:calc(100% - 8px);opacity:0}}
+.l-step-text{display:grid;grid-template-columns:96px minmax(0,1fr);gap:24px;margin-top:clamp(36px,7vh,72px);min-height:104px;align-items:start}
+.l-step-count{font-size:14px;color:var(--l-dim);font-variant-numeric:tabular-nums;letter-spacing:.08em;padding-top:5px}
+.l-step-body{animation:l-swap .5s cubic-bezier(.2,.7,.2,1)}
+@keyframes l-swap{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.l-step-body p{margin-top:8px;max-width:640px;color:var(--l-sub);word-break:keep-all}
+/* 좁은 화면 · 동작 줄이기 설정에서는 고정 구간 대신 세로 목록으로 보여줍니다. */
+.l-steps-list{list-style:none;margin:48px 0 0;padding:0;position:relative}
+.l-steps-list::before{content:"";position:absolute;left:27px;top:28px;bottom:28px;width:2px;background:linear-gradient(180deg,var(--l-blue),var(--l-violet))}
+.l-steps-list li{position:relative;display:grid;grid-template-columns:56px minmax(0,1fr);gap:18px;padding-bottom:28px}
+.l-steps-list li:last-child{padding-bottom:0}
+.l-steps-list .l-node{border-color:rgba(96,165,250,.7);color:#bfdbfe}
+.l-steps-list small{font-size:12px;letter-spacing:.08em;color:var(--l-dim);font-variant-numeric:tabular-nums}
+.l-steps-list p{margin-top:4px;color:var(--l-sub);font-size:15px;word-break:keep-all}
+
+/* 4. 정책: 위험도가 높아지는 한 줄의 흐름. 색은 위험 쪽 단계의 점에만 씁니다. */
+.l-scale{display:flex;align-items:center;gap:14px;margin-top:64px;font-size:12.5px;color:var(--l-dim);letter-spacing:.04em}
+.l-scale i{flex:1;height:2px;border-radius:1px;background:linear-gradient(90deg,rgba(148,163,184,.35) 0%,var(--l-warn) 45%,var(--l-delay) 70%,var(--l-danger) 100%)}
+.l-levels{list-style:none;margin:28px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:28px}
+.l-dot{display:block;width:10px;height:10px;border-radius:50%;background:#cbd5e1;margin-bottom:18px}
+.lv-1 .l-dot{background:var(--l-warn)}
+.lv-2 .l-dot{background:var(--l-delay)}
+.lv-3 .l-dot{background:var(--l-danger);box-shadow:0 0 14px rgba(248,113,113,.55)}
+.l-levels p{margin-top:8px;color:var(--l-sub);font-size:15px;word-break:keep-all}
+
+/* 5. 관리자 콘솔 */
+.l-showcase{margin-top:56px}
+.l-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
+.l-tabs button{border:1px solid var(--l-line);border-radius:999px;background:none;padding:9px 18px;font-size:14.5px;font-weight:550;color:var(--l-sub);
+  transition:color .25s,border-color .25s,background-color .25s;word-break:keep-all}
+.l-tabs button:hover{color:var(--l-text)}
+.l-tabs button.on{color:var(--l-text);border-color:rgba(147,197,253,.6);background:rgba(59,130,246,.12)}
+.l-frame{margin:0;border-radius:12px;border:1px solid rgba(148,163,184,.24);background:#0b1020;overflow:hidden;box-shadow:0 40px 120px -30px rgba(59,130,246,.35)}
+.l-frame-bar{display:flex;align-items:center;gap:6px;height:30px;padding:0 14px;border-bottom:1px solid rgba(148,163,184,.16)}
+.l-frame-bar i{width:9px;height:9px;border-radius:50%;background:rgba(148,163,184,.3)}
+.l-frame-body{position:relative;aspect-ratio:16/10;background:#f8fafc}
+.l-frame-body img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top left;opacity:0;transition:opacity .5s}
+.l-frame-body img.on{opacity:1}
+.l-frame figcaption{padding:9px 14px;font-size:12.5px;color:var(--l-dim);border-top:1px solid rgba(148,163,184,.16)}
+
+/* 6. CTA · Footer */
+.l-cta{position:relative;overflow:hidden;padding:clamp(96px,16vh,184px) 0;text-align:center;border-top:1px solid var(--l-line)}
+.l-cta h2{margin-bottom:34px !important}
+.l-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:24px 28px;border-top:1px solid var(--l-line);color:var(--l-dim);font-size:13.5px}
+.l-footer .l-brand{color:var(--l-text);font-size:14px}
+.l-footer .l-mark{width:24px;height:24px;border-radius:6px}
+
+/* 모바일: 여백과 스크롤 길이를 줄이고 한 열로 정리합니다. */
+@media (max-width:900px){
+  .l-nav{padding:0 16px}
+  .l-nav nav{display:none}
+  .l-wrap{padding:0 20px}
+  .l-hero{padding:84px 20px 72px}
+  .l-section,.l-pipeline.static{padding:64px 0}
+  .l-kicker{margin-bottom:12px !important}
+  .l-problems{margin-top:36px}
+  .l-problems li{grid-template-columns:36px minmax(0,1fr);gap:10px;padding:20px 0}
+  .l-problems p{font-size:15px}
+  .l-steps-list{margin-top:36px}
+  .l-steps-list li{padding-bottom:22px}
+  .l-scale{margin-top:36px}
+  .l-levels{grid-template-columns:1fr;gap:0;margin-top:18px}
+  .l-levels li{display:grid;grid-template-columns:22px minmax(0,1fr);column-gap:10px;padding:14px 0;border-top:1px solid var(--l-line)}
+  .l-levels li:last-child{border-bottom:1px solid var(--l-line)}
+  .l-dot{grid-row:1 / span 2;margin:8px 0 0}
+  .l-levels p{margin-top:2px}
+  .l-showcase{margin-top:32px}
+  .l-tabs{gap:6px;margin-bottom:16px}
+  .l-tabs button{padding:7px 13px;font-size:13.5px}
+  .l-cta{padding:72px 0}
+  .l-cta h2{margin-bottom:26px !important}
+  .l-footer{padding:20px}
+}
+@media (max-width:480px){
+  .l-actions .l-btn{width:100%}
+}
+
+/* 동작 줄이기: 모든 내용을 즉시 보여주고 반복 애니메이션을 끕니다. */
+@media (prefers-reduced-motion:reduce){
+  html.landing-active{scroll-behavior:auto}
+  .landing *,.landing *::before,.landing *::after{animation:none !important;transition:none !important}
+  .rise,.reveal{opacity:1 !important;transform:none !important}
+}

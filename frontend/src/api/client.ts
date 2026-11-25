@@ -5,6 +5,7 @@ import type {
   Assessment,
   Concert,
   AssessmentAttempt,
+  BookingHistory,
   ConcertDetail,
   ConcertTrend,
   ConcertUser,
@@ -98,6 +99,14 @@ export const api = {
     request<PageResponse<AssessmentAttempt>>(`/api/v1/admin/users/${id(userId)}/assessment-attempts`, key, {
       page: 0,
       size: 10,
+      ...query,
+    }),
+
+  /** 티켓 단위 관람 이력(예매 · 관람 완료 · 노쇼 · 취소). */
+  userBookings: (key: string, userId: string, query: Params = {}) =>
+    request<PageResponse<BookingHistory>>(`/api/v1/admin/users/${id(userId)}/bookings`, key, {
+      page: 0,
+      size: 20,
       ...query,
     }),
 
