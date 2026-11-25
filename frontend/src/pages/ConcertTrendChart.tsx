@@ -1,151 +1,153 @@
-import { useEffect, useState } from 'react'
-import { LoaderCircle } from 'lucide-react'
-import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useMemo, useState } from 'react'
+import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api } from '../api/client'
 import type { ConcertTrend } from '../api/types'
-import { explainError } from '../utils'
+import { ChartTip } from '../charts'
+import { useApi } from '../hooks'
+import { ANIM, COLOR, ErrorState, Panel, SkeletonBlock } from '../ui'
+import { number, timeZoneLabel } from '../utils'
 import type { Session } from '../utils'
 
 interface Props {
   session: Session
   concertId: string
+  refreshKey: number
 }
 
-/** 백엔드가 허용하는 집계 간격(초). AI 평가가 기본 60초 주기라 60초가 최소입니다. */
+/** 백엔드가 허용하는 집계 간격(초)과 한 번에 조회할 수 있는 최대 구간 수. */
 const INTERVALS = [60, 300, 600, 3600]
 const MAX_BUCKETS = 500
 const HOUR = 3600
 
-/** 조회 범위 프리셋: 범위(초)와 버킷이 500개를 넘지 않는 간격. */
 const PRESETS: { key: string; label: string; seconds: number; interval: number }[] = [
-  { key: '1h', label: '최근 1시간', seconds: HOUR, interval: 60 },
-  { key: '6h', label: '최근 6시간', seconds: 6 * HOUR, interval: 60 },
-  { key: '24h', label: '최근 24시간', seconds: 24 * HOUR, interval: 300 },
-  { key: '7d', label: '최근 7일', seconds: 7 * 24 * HOUR, interval: 3600 },
-  { key: '20d', label: '최근 20일', seconds: 20 * 24 * HOUR, interval: 3600 },
+  { key: '1h', label: '1시간', seconds: HOUR, interval: 60 },
+  { key: '6h', label: '6시간', seconds: 6 * HOUR, interval: 60 },
+  { key: '24h', label: '24시간', seconds: 24 * HOUR, interval: 300 },
+  { key: '7d', label: '7일', seconds: 7 * 24 * HOUR, interval: 3600 },
+  { key: '20d', label: '20일', seconds: 20 * 24 * HOUR, interval: 3600 },
 ]
 
-const intervalLabel = (seconds: number) =>
-  seconds < HOUR ? `${seconds}초 단위${seconds === 60 ? '' : ` (${seconds / 60}분)`}` : `${seconds / HOUR}시간 단위`
+const intervalLabel = (seconds: number) => (seconds < HOUR ? `${seconds / 60}분` : `${seconds / HOUR}시간`)
+const toLocalInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+const pad = (n: number) => String(n).padStart(2, '0')
 
-// datetime-local 입력값(브라우저 시간대)을 UTC ISO 문자열로 바꿉니다.
-const toUtc = (local: string) => (local ? new Date(local).toISOString() : '')
-const toLocalInput = (date: Date) => {
-  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return shifted.toISOString().slice(0, 16)
+/** 조회 구간이 몇 개의 버킷으로 나뉘는지 계산합니다(시작 시각은 간격 단위로 내림). */
+function bucketCount(fromMs: number, toMs: number, interval: number) {
+  const step = interval * 1000
+  return Math.ceil((toMs - Math.floor(fromMs / step) * step) / step)
 }
 
-export default function ConcertTrendChart({ session, concertId }: Props) {
+export default function ConcertTrendChart({ session, concertId, refreshKey }: Props) {
   const [preset, setPreset] = useState('24h')
-  const [customFrom, setCustomFrom] = useState(() => toLocalInput(new Date(Date.now() - 24 * HOUR * 1000)))
-  const [customTo, setCustomTo] = useState(() => toLocalInput(new Date()))
-  const [customInterval, setCustomInterval] = useState(300)
-  const [applied, setApplied] = useState(0) // 직접 지정 범위는 "조회"를 눌렀을 때만 다시 불러옵니다.
-  const [trend, setTrend] = useState<ConcertTrend | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [from, setFrom] = useState(() => toLocalInput(new Date(Date.now() - 24 * HOUR * 1000)))
+  const [to, setTo] = useState(() => toLocalInput(new Date()))
+  const [interval, setIntervalSeconds] = useState(300)
+  // 직접 지정 범위는 "조회"를 눌렀을 때만 요청합니다.
+  const [applied, setApplied] = useState<{ from: string; to: string; interval: number } | null>(null)
 
-  useEffect(() => {
-    let alive = true
-    let query: Record<string, string | number>
-    if (preset === 'custom') {
-      const from = toUtc(customFrom)
-      const to = toUtc(customTo)
-      if (!from || !to || new Date(from) >= new Date(to)) {
-        setTrend(null); setLoading(false); setError('시작 시각이 종료 시각보다 앞서야 합니다.')
-        return
-      }
-      const intervalMs = customInterval * 1000
-      const alignedFrom = Math.floor(new Date(from).getTime() / intervalMs) * intervalMs
-      const buckets = Math.ceil((new Date(to).getTime() - alignedFrom) / intervalMs)
-      if (buckets > MAX_BUCKETS) {
-        setTrend(null); setLoading(false)
-        setError(`구간이 ${buckets}개로 나뉩니다. 최대 ${MAX_BUCKETS}개까지 조회할 수 있으니 범위를 줄이거나 간격을 늘려 주세요.`)
-        return
-      }
-      query = { from, to, intervalSeconds: customInterval }
-    } else {
-      const chosen = PRESETS.find(p => p.key === preset) ?? PRESETS[2]
-      const to = new Date()
-      query = {
-        from: new Date(to.getTime() - chosen.seconds * 1000).toISOString(),
-        to: to.toISOString(),
-        intervalSeconds: chosen.interval,
-      }
+  const fromMs = from ? new Date(from).getTime() : NaN
+  const toMs = to ? new Date(to).getTime() : NaN
+  const rangeOk = Number.isFinite(fromMs) && Number.isFinite(toMs) && fromMs < toMs
+  const allowed = rangeOk ? INTERVALS.filter(s => bucketCount(fromMs, toMs, s) <= MAX_BUCKETS) : []
+  const customError = !rangeOk ? '시작 시각이 종료 시각보다 앞서야 합니다.'
+    : !allowed.length ? `조회 기간이 너무 깁니다. 1시간 간격으로도 ${MAX_BUCKETS}개 구간을 넘으니 기간을 줄여 주세요.`
+    : !allowed.includes(interval) ? `${intervalLabel(interval)} 간격은 구간이 ${number(bucketCount(fromMs, toMs, interval))}개로 나뉘어 조회할 수 없습니다.` : ''
+
+  const trend = useApi<ConcertTrend>(() => {
+    if (preset === 'custom' && applied) {
+      return api.concertTrends(session.adminKey, session.serviceId, concertId,
+        { from: new Date(applied.from).toISOString(), to: new Date(applied.to).toISOString(), intervalSeconds: applied.interval })
     }
-    setLoading(true)
-    setError('')
-    api.concertTrends(session.adminKey, session.serviceId, concertId, query)
-      .then(t => alive && setTrend(t))
-      .catch(e => { if (alive) { setTrend(null); setError(`추이 조회 실패: ${explainError(e)}`) } })
-      .finally(() => alive && setLoading(false))
-    return () => { alive = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.adminKey, session.serviceId, concertId, preset, applied])
+    const chosen = PRESETS.find(x => x.key === preset) ?? PRESETS[2]
+    const now = new Date()
+    return api.concertTrends(session.adminKey, session.serviceId, concertId, {
+      from: new Date(now.getTime() - chosen.seconds * 1000).toISOString(), to: now.toISOString(), intervalSeconds: chosen.interval,
+    })
+  }, [session.adminKey, session.serviceId, concertId, preset, applied, refreshKey], { skip: preset === 'custom' && !applied })
 
-  const interval = trend?.intervalSeconds ?? (preset === 'custom' ? customInterval : PRESETS.find(p => p.key === preset)?.interval ?? 60)
+  // 직접 지정에서 아직 조회하지 않았다면 이전 범위의 결과를 보여주지 않습니다.
+  const data = preset === 'custom' && !applied ? null : trend.data
+  const step = data?.intervalSeconds ?? 300
+  const longRange = data ? new Date(data.to).getTime() - new Date(data.from).getTime() > 24 * HOUR * 1000 : false
   const tick = (iso: string) => {
-    const date = new Date(iso)
-    const time = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
-    return interval >= HOUR || (trend && new Date(trend.to).getTime() - new Date(trend.from).getTime() > 24 * HOUR * 1000)
-      ? `${date.getMonth() + 1}/${date.getDate()} ${time}` : time
+    const d = new Date(iso)
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+    return step >= HOUR || longRange ? `${d.getMonth() + 1}/${d.getDate()} ${time}` : time
   }
-  const rows = trend?.buckets ?? []
-  const totals = rows.reduce((sum, b) => ({
-    attempts: sum.attempts + b.attemptCount,
-    anomalies: sum.anomalies + b.anomalyAssessmentCount,
-    sanctions: sum.sanctions + b.sanctionAppliedCount,
-  }), { attempts: 0, anomalies: 0, sanctions: 0 })
-  const empty = !rows.some(b => b.attemptCount || b.anomalyAssessmentCount || b.sanctionAppliedCount)
+  const range = (iso: unknown) => {
+    const start = new Date(String(iso))
+    const end = new Date(start.getTime() + step * 1000)
+    const f = (d: Date) => `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    return `${f(start)} ~ ${f(end)}`
+  }
+  const totals = useMemo(() => (data?.buckets ?? []).reduce((s, b) => ({
+    attempts: s.attempts + b.attemptCount, anomalies: s.anomalies + b.anomalyAssessmentCount, sanctions: s.sanctions + b.sanctionAppliedCount,
+  }), { attempts: 0, anomalies: 0, sanctions: 0 }), [data])
+  const empty = !!data && !totals.attempts && !totals.anomalies && !totals.sanctions
 
   return (
-    <div className="chart-box">
-      <div className="chart-head"><b>시간대별 추이</b><span>{intervalLabel(interval)}</span></div>
-      <div className="chart-controls">
-        <select value={preset} onChange={e => setPreset(e.target.value)} aria-label="조회 범위">
-          {PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-          <option value="custom">직접 지정</option>
-        </select>
-        {preset === 'custom' && (
-          <>
-            <input type="datetime-local" value={customFrom} onChange={e => setCustomFrom(e.target.value)} aria-label="시작 시각" />
-            <span>~</span>
-            <input type="datetime-local" value={customTo} onChange={e => setCustomTo(e.target.value)} aria-label="종료 시각" />
-            <select value={customInterval} onChange={e => setCustomInterval(Number(e.target.value))} aria-label="집계 간격">
-              {INTERVALS.map(s => <option key={s} value={s}>{intervalLabel(s)}</option>)}
-            </select>
-            <button className="btn outline small" onClick={() => setApplied(n => n + 1)}>조회</button>
-          </>
-        )}
-      </div>
+    <Panel title="시간대별 추이"
+      hint="예매 시도는 왼쪽 축, AI 이상 탐지와 정책 적용은 오른쪽 축을 씁니다. AI 이상 탐지는 이 공연 참여자가 이상 행동으로 평가된 건수, 정책 적용은 티켓팅 서비스가 실제 적용했다고 보고한 건수입니다. 세 값은 세는 대상이 달라 서로 더하거나 비율로 비교할 수 없습니다."
+      sub={data ? `${range(data.from).split(' ~ ')[0]} ~ ${range(data.to).split(' ~ ')[0]} · ${intervalLabel(data.intervalSeconds)} 단위 (${timeZoneLabel()})` : undefined}
+      actions={(
+        <div className="seg" role="group" aria-label="조회 범위">
+          {PRESETS.map(x => <button key={x.key} className={preset === x.key ? 'active' : ''} onClick={() => setPreset(x.key)}>최근 {x.label}</button>)}
+          <button className={preset === 'custom' ? 'active' : ''} onClick={() => setPreset('custom')}>직접 지정</button>
+        </div>
+      )}>
+      {preset === 'custom' && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="filters">
+            <label>시작<input className="input" type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} /></label>
+            <label>종료<input className="input" type="datetime-local" value={to} onChange={e => setTo(e.target.value)} /></label>
+            <label>집계 간격
+              <select className="select" value={interval} onChange={e => setIntervalSeconds(Number(e.target.value))}>
+                {INTERVALS.map(s => <option key={s} value={s} disabled={rangeOk && !allowed.includes(s)}>
+                  {intervalLabel(s)}{rangeOk && !allowed.includes(s) ? ' (구간 초과)' : ''}</option>)}
+              </select>
+            </label>
+            <button className="btn primary" disabled={!!customError} onClick={() => setApplied({ from, to, interval })}>조회</button>
+          </div>
+          <p className="note" style={{ marginTop: 8, color: customError ? COLOR.danger : undefined }} role={customError ? 'alert' : undefined}>
+            {customError && `${customError} `}
+            {rangeOk && allowed.length > 0 && `이 기간에 선택할 수 있는 간격: ${allowed.map(intervalLabel).join(' · ')}. `}
+            한 번에 최대 {MAX_BUCKETS}개 구간까지 조회합니다.
+          </p>
+        </div>
+      )}
 
-      {loading ? <div className="chart-empty"><LoaderCircle className="spin" size={18} /></div>
-        : error ? <div className="chart-empty danger">{error}</div>
-        : empty ? <div className="chart-empty">선택한 구간에 예매 시도 · 이상 평가 · 제재 적용 기록이 없습니다.</div>
+      {trend.error ? <ErrorState message={trend.error} onRetry={trend.reload} />
+        : preset === 'custom' && !applied ? <div className="chart-empty">기간과 집계 간격을 정한 뒤 조회를 눌러 주세요.</div>
+        : !data ? <SkeletonBlock h={280} />
+        : empty ? <div className="chart-empty">선택한 기간에 예매 시도 · AI 이상 탐지 · 정책 적용 기록이 없습니다.</div>
         : (
-          <div className="chart-area">
-            <ResponsiveContainer width="100%" height={230}>
-              <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
-                <CartesianGrid stroke="#eef0f4" vertical={false} />
-                <XAxis dataKey="startsAt" tickFormatter={tick} tick={{ fontSize: 11 }} minTickGap={28} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip labelFormatter={label => tick(String(label))} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="attemptCount" name="예매 시도(건)" fill="#8fa6ea" isAnimationActive={false} />
-                <Line dataKey="anomalyAssessmentCount" name="이상 평가(건)" stroke="#c0463d" strokeWidth={2} dot={false} isAnimationActive={false} />
-                {trend?.sanctionRecorded &&
-                  <Line dataKey="sanctionAppliedCount" name="제재 적용(건)" stroke="#9a783a" strokeWidth={2} dot={false} isAnimationActive={false} />}
+          <div style={{ opacity: trend.loading ? 0.6 : 1 }}>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={data.buckets} margin={{ top: 8, right: 0, bottom: 0, left: 0 }}>
+                <CartesianGrid stroke={COLOR.grid} vertical={false} />
+                <XAxis dataKey="startsAt" tickFormatter={tick} tickLine={false} axisLine={{ stroke: COLOR.grid }} minTickGap={36} />
+                <YAxis yAxisId="attempt" allowDecimals={false} tickLine={false} axisLine={false} width={44} domain={[0, 'auto']} tickFormatter={v => number(v)} />
+                <YAxis yAxisId="event" orientation="right" allowDecimals={false} tickLine={false} axisLine={false} width={44} domain={[0, 'auto']} tickFormatter={v => number(v)} />
+                <Tooltip cursor={{ fill: COLOR.hover }} content={<ChartTip unit="건" title={l => range(l)} />} />
+                <Bar yAxisId="attempt" dataKey="attemptCount" name="예매 시도" fill={COLOR.inkFaint} {...ANIM} />
+                <Line yAxisId="event" dataKey="anomalyAssessmentCount" name="AI 이상 탐지" stroke={COLOR.danger} strokeWidth={2} dot={false} {...ANIM} />
+                {data.sanctionRecorded &&
+                  <Line yAxisId="event" dataKey="sanctionAppliedCount" name="정책 적용" stroke={COLOR.ink} strokeWidth={2} strokeDasharray="5 3" dot={false} {...ANIM} />}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
-      {trend && !loading && !error && (
-        <p className="chart-note">
-          구간 합계: 예매 시도 {totals.attempts}건 · 이상 평가 {totals.anomalies}건 · 제재 적용{' '}
-          {trend.sanctionRecorded ? `${totals.sanctions}건` : '기록 없음'}.
-          {' '}이상 평가는 이 공연 참여자가 참여 이후 AI에서 이상(점수 0.5 이상)으로 평가된 건수입니다.
-        </p>
+
+      {data && !trend.error && (
+        <>
+          <div className="legend" style={{ marginTop: 12 }}>
+            <span><i style={{ background: COLOR.inkFaint }} />예매 시도 <b className="num">{number(totals.attempts)}건</b></span>
+            <span><i className="line" style={{ background: COLOR.danger }} />AI 이상 탐지 <b className="num">{number(totals.anomalies)}건</b></span>
+            <span><i className="line" style={{ background: data.sanctionRecorded ? COLOR.ink : COLOR.inkFaint }} />정책 적용{' '}
+              {data.sanctionRecorded ? <b className="num">{number(totals.sanctions)}건</b> : <b className="na">기록 없음</b>}</span>
+          </div>
+        </>
       )}
-    </div>
+    </Panel>
   )
 }
