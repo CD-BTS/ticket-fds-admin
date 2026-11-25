@@ -336,6 +336,9 @@ details.more>summary small{font-weight:400;color:var(--text-3)}
   .side-label,.side-service{display:none}
   .side-foot{border:0;padding:0}
   .topbar,.content,.public-bar,.public-main{padding-left:16px;padding-right:16px}
+  .panel-head{flex-wrap:wrap}
+  .panel-head>.seg{max-width:100%;flex-wrap:wrap}
+  .panel-head>.seg button{flex-shrink:0;white-space:nowrap}
   .cols-2,.cols-3,.cols-1-2{grid-template-columns:1fr}
   .kpi{border-bottom:1px solid var(--border)}
   .donut{grid-template-columns:1fr;justify-items:center}
