@@ -1,9 +1,12 @@
 package com.bts.fairticket.credit.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.bts.fairticket.common.exception.ApiException;
+import com.bts.fairticket.common.response.ResponseCode;
 import com.bts.fairticket.credit.dto.CreditEvaluationContext;
 import com.bts.fairticket.credit.entity.CreditHistory;
 import com.bts.fairticket.credit.entity.UserCard;
@@ -346,5 +351,52 @@ class CreditEvaluationServiceTest {
         assertThat(userCredit.getCreditScore()).isEqualTo(35);
         assertThat(userCredit.getDynamicPenalty()).isNull();
         verify(creditHistoryRepository, org.mockito.Mockito.never()).save(any(CreditHistory.class));
+    }
+
+    @Test
+    @DisplayName("#64 서비스 재평가: 다른 서비스의 사용자면 Credit을 바꾸지 않고 USER_NOT_FOUND로 거부한다")
+    void evaluateForService_RejectsUserOfAnotherService() {
+        String userId = "other-service-user";
+        UserAccount user = new UserAccount(userId, "service-2", "ext-other");
+        given(userAccountRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> creditEvaluationService.evaluateAndApplyCreditForService(
+                userId, "service-1", CreditEvaluationContext.defaultContext()))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getResponseCode()).isEqualTo(ResponseCode.USER_NOT_FOUND));
+
+        verify(userCreditRepository, never()).findByIdForUpdate(any());
+        verify(userCreditRepository, never()).save(any());
+        verifyNoInteractions(creditHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("#64 서비스 재평가: 인증된 서비스가 없으면 사용자를 조회하지 않고 UNAUTHORIZED로 거부한다")
+    void evaluateForService_RequiresAuthenticatedService() {
+        assertThatThrownBy(() -> creditEvaluationService.evaluateAndApplyCreditForService(
+                "any-user", " ", CreditEvaluationContext.defaultContext()))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getResponseCode()).isEqualTo(ResponseCode.UNAUTHORIZED));
+
+        verifyNoInteractions(userAccountRepository, userCreditRepository, creditHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("#64 서비스 재평가: 같은 서비스의 사용자면 기존 재평가와 같이 계산한다")
+    void evaluateForService_EvaluatesUserOfSameService() {
+        String userId = "same-service-user";
+        UserAccount user = new UserAccount(userId, "service-1", "ext-same");
+        UserCredit userCredit = new UserCredit(user);
+        given(userAccountRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
+        given(userCreditRepository.findByIdForUpdate(userId)).willReturn(Optional.of(userCredit));
+        given(riskAssessmentRepository.findFirstByUser_UserIdOrderByAssessedAtDescAssessmentIdDesc(userId))
+                .willReturn(Optional.empty());
+        given(userCardRepository.findByUser_UserId(userId)).willReturn(List.of());
+
+        var summary = creditEvaluationService.evaluateAndApplyCreditForService(
+                userId, "service-1", CreditEvaluationContext.defaultContext());
+
+        assertThat(summary.userId()).isEqualTo(userId);
+        verify(userCreditRepository).save(userCredit);
     }
 }

@@ -53,7 +53,21 @@ public class CreditEvaluationService {
      */
     @Transactional
     public EvaluationSummary evaluateAndApplyCredit(String userId, CreditEvaluationContext context) {
-        return evaluate(userId, context, null).orElseThrow();
+        return evaluate(userId, null, context, null).orElseThrow();
+    }
+
+    /**
+     * 외부 서비스가 요청한 재평가 (#64). 인증된 서비스(serviceId)에 속한 사용자만 다시 계산하고,
+     * 다른 서비스의 사용자면 아무것도 바꾸지 않고 USER_NOT_FOUND로 거부한다. 다른 서비스 사용자의
+     * 존재 여부도 드러내지 않도록 없는 사용자와 같은 응답을 쓴다.
+     */
+    @Transactional
+    public EvaluationSummary evaluateAndApplyCreditForService(String userId, String serviceId,
+            CreditEvaluationContext context) {
+        if (serviceId == null || serviceId.isBlank()) {
+            throw new ApiException(ResponseCode.UNAUTHORIZED);
+        }
+        return evaluate(userId, serviceId, context, null).orElseThrow();
     }
 
     /**
@@ -67,12 +81,16 @@ public class CreditEvaluationService {
     @Transactional
     public Optional<EvaluationSummary> evaluateAfterAssessment(String userId, CreditEvaluationContext context,
             long assessmentId) {
-        return evaluate(userId, context, assessmentId);
+        return evaluate(userId, null, context, assessmentId);
     }
 
-    private Optional<EvaluationSummary> evaluate(String userId, CreditEvaluationContext context,
-            Long expectedLatestAssessmentId) {
+    /**
+     * @param requiredServiceId null이 아니면 사용자가 이 서비스에 속할 때만 계산한다 (#64)
+     */
+    private Optional<EvaluationSummary> evaluate(String userId, String requiredServiceId,
+            CreditEvaluationContext context, Long expectedLatestAssessmentId) {
         UserAccount user = userAccountRepository.findByIdForUpdate(userId)
+                .filter(found -> requiredServiceId == null || requiredServiceId.equals(found.getServiceId()))
                 .orElseThrow(() -> new ApiException(ResponseCode.USER_NOT_FOUND));
 
         UserCredit userCredit = userCreditRepository.findByIdForUpdate(userId)

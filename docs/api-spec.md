@@ -887,6 +887,22 @@ AI 평가, Credit, 위험 정책은 서로 다른 개념이며 응답에서 필�
 
 `Authorization: Bearer`로 호출하던 클라이언트는 `X-API-Key`로 바꿔야 합니다. ticket-fds-demo-ticketing과 관리자 프런트엔드는 이 두 API를 호출하지 않습니다.
 
+### Credit 재평가 API 서비스 범위 검증 (#64)
+
+`POST /api/v1/users/{userId}/credit/evaluate`
+
+- 이전: 서비스 키로 인증은 했지만 사용자의 소속 서비스는 확인하지 않아, **다른 서비스 사용자의 Credit도 다시 계산해 바꿀 수 있었습니다.**
+- 이후: 인증된 서비스에 속한 사용자만 재평가합니다. 다른 서비스 사용자면 아무것도 바꾸지 않습니다.
+  소속 확인은 사용자 행을 잠근 직후, Credit을 읽거나 쓰기 전에 합니다.
+
+| 요청 | 응답 |
+|---|---|
+| `X-API-Key` 없음, 잘못된 키 | 401 `UNAUTHORIZED` |
+| 다른 서비스의 사용자 | 404 `USER_NOT_FOUND` (없는 사용자와 같은 응답이라 다른 서비스 사용자의 존재 여부가 드러나지 않습니다) |
+| 관리자 키 | 403 `FORBIDDEN` |
+
+요청·응답 형식과 계산식은 그대로입니다. BTS 내부의 자동 갱신(AI 평가 반영, 관람 이력 반영)은 이 API를 거치지 않으므로 영향이 없습니다.
+
 ### GET /api/v1/admin/users/{userId}/credit-history (신규)
 
 Credit 변경 이력과 산출 근거. 파라미터는 `page`(기본 0), `size`(기본 20, 최대 100), `startDate`, `endDate`(UTC 날짜 `yyyy-MM-dd`, 둘 다 그날 포함)입니다. 최신순입니다.
