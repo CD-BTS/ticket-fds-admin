@@ -256,7 +256,9 @@ export default function UserDetail({ session, userId, concerts, onLoaded, onBack
             )}
           </Panel>
 
-          <FeaturePanel assessed={assessments.data?.content[0] ?? null} assessmentsLoaded={!!assessments.data} features={features} />
+          {assessments.error
+            ? <Panel title="행동 특성"><ErrorState message={assessments.error} onRetry={assessments.reload} /></Panel>
+            : <FeaturePanel assessed={assessments.data?.content[0] ?? null} assessmentsLoaded={!!assessments.data} features={features} />}
 
           <Panel title="이상 점수 변화" flush hint="성공한 AI 평가의 점수를 시간순으로 표시합니다. 점수가 나오지 않은 평가 시도는 포함하지 않습니다."
             sub={assessments.data ? `성공한 평가 ${number(assessments.data.totalElements)}건${assessments.data.totalElements > assessments.data.content.length ? ` 중 최근 ${assessments.data.content.length}건` : ''}` : undefined}>
